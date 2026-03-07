@@ -69,19 +69,15 @@ with st.sidebar:
         }
 
     try:
-        # 实时获取数据
         res = supabase.table("student_scores").select("*").order("student_name").execute()
         df = pd.DataFrame(res.data)
         student_list = df["student_name"].tolist()
         curr_student = st.selectbox("👤 选择辅导学生：", student_list)
         
-        # 安全获取学生得分
         s_data = df[df["student_name"] == curr_student].iloc[0]
-        # 自动识别数据库中存在的、且在选题体系中的列
         active_kps = [col for col in s_data.index if col in st.session_state.topic_map.keys()]
         
         if active_kps:
-            # 填补缺失值（NaN 转 0）防止绘图崩溃
             scores = [float(s_data[kp]) if pd.notnull(s_data[kp]) else 60.0 for kp in active_kps]
             radar_df = pd.DataFrame({"维度": active_kps, "得分": scores})
             fig = px.line_polar(radar_df, r='得分', theta='维度', line_close=True, range_r=[0, 100])
@@ -99,7 +95,6 @@ with st.sidebar:
             new_name = st.text_input("新增姓名：")
             if st.button("➕ 确认入驻"):
                 if new_name:
-                    # 自动为所有当前大类分配初始分 60，防止雷达图报错
                     init_entry = {"student_name": new_name}
                     for kp in st.session_state.topic_map.keys():
                         init_entry[kp] = 60
@@ -122,14 +117,11 @@ with st.sidebar:
 st.title(f"🛡️ 智汇皋陶：{curr_student} 的演化空间")
 avg_score = sum(scores)/len(scores) if scores else 0
 
-c1, c2, c3, c4 = st.columns([2, 2, 2, 3])
+# 【修改点】：删除了仪表盘，改为3列布局显示核心指标
+c1, c2, c3 = st.columns(3)
 with c1: st.markdown(f'<div class="metric-card"><h3>👤 学生</h3><h2>{curr_student}</h2></div>', unsafe_allow_html=True)
 with c2: st.markdown(f'<div class="metric-card"><h3>🎯 攻坚项</h3><h2 style="color:#D32F2F;">{recommended_kp}</h2></div>', unsafe_allow_html=True)
 with c3: st.markdown(f'<div class="metric-card"><h3>📈 能力值</h3><h2 style="color:#2E7D32;">{avg_score:.1f}</h2></div>', unsafe_allow_html=True)
-with c4:
-    gauge_fig = go.Figure(go.Indicator(mode="gauge+number", value=avg_score, title={'text': "学习质量指数", 'font': {'size': 18}}, gauge={'axis': {'range': [None, 100]}, 'bar': {'color': "#1E88E5"}}))
-    gauge_fig.update_layout(height=160, margin=dict(l=10, r=10, t=30, b=10))
-    st.plotly_chart(gauge_fig, use_container_width=True)
 
 tab1, tab2, tab3 = st.tabs(["🎯 智能演化练习", "📊 成长轨迹轴", "📜 深度审计诊断"])
 
@@ -151,7 +143,7 @@ with tab1:
 
         if "q_text" in st.session_state:
             st.markdown(f'<div class="question-display">{st.session_state.q_text}</div>', unsafe_allow_html=True)
-            u_ans = st.text_area("✍️ 录入你的思考（请输入选项）：", height=100, key="user_ans_widget")
+            u_ans = st.text_area("✍️ 录入你的思考（请输入选项字母）：", height=100, key="user_ans_widget")
             if st.button("🚀 提交并更新图谱"):
                 with st.spinner("名师正在分析中..."):
                     review = gao_tao_ai_engine("导师", f"题：{st.session_state.q_text}\n答：{u_ans}", deepseek_key, is_review=True)
@@ -159,7 +151,6 @@ with tab1:
                     impact = 2 if "正确" in first_line and "错误" not in first_line else -2
                     supabase.table("study_logs").insert({"student_name": curr_student, "knowledge_point": st.session_state.active_s, "question": st.session_state.q_text, "answer_logic": u_ans, "ai_review": review, "score_impact": impact}).execute()
                     
-                    # 提交分数
                     if st.session_state.active_m in s_data:
                         new_val = max(0, min(100, float(s_data[st.session_state.active_m]) + impact))
                         supabase.table("student_scores").update({st.session_state.active_m: new_val}).eq("student_name", curr_student).execute()
