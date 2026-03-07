@@ -114,13 +114,12 @@ if "curr_student" in locals():
             m_cat = st.selectbox("选择知识大类：", list(st.session_state.topic_map.keys()))
             s_cat = st.selectbox("锁定精细主题：", st.session_state.topic_map[m_cat])
 
-            # 【核心改进 1】：点击生成题目时，通过 key 强制清空 text_area 的内容
+            # 【修复 1】：生成题目时，通过 key 值物理重置输入框
             if st.button("✨ 生成启发式题目"):
-                # 清除之前的点评和影响
                 for key in ["last_review", "last_impact"]:
                     if key in st.session_state: del st.session_state[key]
                 
-                # 关键：手动重置输入框绑定的 session_state 值
+                # 强制置空 text_area 的内容
                 if "user_ans_widget" in st.session_state:
                     st.session_state["user_ans_widget"] = ""
                 
@@ -132,11 +131,11 @@ if "curr_student" in locals():
             if "q_text" in st.session_state:
                 st.markdown(f'<div class="question-box">{st.session_state.q_text}</div>', unsafe_allow_html=True)
                 
-                # 【核心改进 2】：给 text_area 绑定一个固定的 key
+                # 给输入框绑定一个固定的 key
                 u_ans = st.text_area(
                     "✍️ 你的思考（请输入选项字母）：", 
                     height=100, 
-                    key="user_ans_widget" # 通过这个 key 实现重置
+                    key="user_ans_widget" 
                 )
                 
                 if st.button("🚀 提交并更新图谱"):
@@ -144,9 +143,14 @@ if "curr_student" in locals():
                         p_prompt = f"题目：{st.session_state.q_text}\n回答：{u_ans}\n判定对错并点拨。第一行给正确答案。"
                         review = gao_tao_ai_engine("导师", p_prompt, deepseek_key, is_review=True)
                         
-                        is_correct = "正确" in review[:30] or u_ans.upper() in review[:25]
-                        impact = 2 if is_correct else -2
+                        # --- 【修复 2：判定逻辑手术】 ---
+                        # 只看第一行，且必须明确包含“正确”两字才加分
+                        impact = -2 
+                        first_line = review.split('\n')[0]
+                        if "正确" in first_line and "错误" not in first_line:
+                            impact = 2
                         
+                        # 记录与更新
                         supabase.table("study_logs").insert({"student_name": curr_student, "knowledge_point": st.session_state.active_s, "question": st.session_state.q_text, "answer_logic": u_ans, "ai_review": review, "score_impact": impact}).execute()
                         
                         if st.session_state.active_m in s_data:
