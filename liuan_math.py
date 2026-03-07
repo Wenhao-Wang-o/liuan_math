@@ -40,7 +40,7 @@ def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False):
         base_instruction = (
             "你现在是皋陶学校数学特级教师李鹏燕。任务：批改。 "
             "【输出规范】：1. 第一行必须直接给出正确选项，格式为：‘正确答案是：[选项字母]’。 "
-            "2. 从第二行开始进行名师启发。3. 严禁使用 LaTeX 符号。 "
+            "2. 从第二行开始进行名师启发。3. 严禁使用 LaTeX 符号（如 $、^、sqrt）。 "
             "4. 允许并建议使用阿拉伯数字（如 30度、2倍）。5. 语气要温和，只给‘题眼’不给步骤。"
         )
     else:
@@ -114,10 +114,15 @@ if "curr_student" in locals():
             m_cat = st.selectbox("选择知识大类：", list(st.session_state.topic_map.keys()))
             s_cat = st.selectbox("锁定精细主题：", st.session_state.topic_map[m_cat])
 
-            # 【关键修改】：点击生成题目时，清空上一次的解析和学生的回答内容
+            # 【核心改进 1】：点击生成题目时，通过 key 强制清空 text_area 的内容
             if st.button("✨ 生成启发式题目"):
-                for key in ["last_review", "last_impact", "u_ans"]:
+                # 清除之前的点评和影响
+                for key in ["last_review", "last_impact"]:
                     if key in st.session_state: del st.session_state[key]
+                
+                # 关键：手动重置输入框绑定的 session_state 值
+                if "user_ans_widget" in st.session_state:
+                    st.session_state["user_ans_widget"] = ""
                 
                 q_prompt = f"针对【{s_cat}】考点出一道单选题。纯文字描述。"
                 st.session_state.q_text = gao_tao_ai_engine("命题专家", q_prompt, deepseek_key)
@@ -127,12 +132,14 @@ if "curr_student" in locals():
             if "q_text" in st.session_state:
                 st.markdown(f'<div class="question-box">{st.session_state.q_text}</div>', unsafe_allow_html=True)
                 
-                # 使用 value 绑定 session_state，实现自动清空
-                current_val = st.session_state.get("u_ans", "")
-                u_ans = st.text_area("✍️ 你的思考（请输入选项字母）：", value=current_val, height=100, key="ans_input")
+                # 【核心改进 2】：给 text_area 绑定一个固定的 key
+                u_ans = st.text_area(
+                    "✍️ 你的思考（请输入选项字母）：", 
+                    height=100, 
+                    key="user_ans_widget" # 通过这个 key 实现重置
+                )
                 
                 if st.button("🚀 提交并更新图谱"):
-                    st.session_state.u_ans = u_ans # 记录当前输入
                     with st.spinner("名师正在分析中..."):
                         p_prompt = f"题目：{st.session_state.q_text}\n回答：{u_ans}\n判定对错并点拨。第一行给正确答案。"
                         review = gao_tao_ai_engine("导师", p_prompt, deepseek_key, is_review=True)
