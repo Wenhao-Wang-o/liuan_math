@@ -39,8 +39,8 @@ def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False):
     if is_review:
         base_instruction = (
             "你现在是皋陶学校数学特级教师李鹏燕。任务：批改。 "
-            "【输出规范】：1. 第一行必须直接给出正确选项，格式为：‘正确答案是：[选项字母]’。 "
-            "2. 从第二行开始进行名师启发。3. 严禁使用 LaTeX 符号（如 $、^、sqrt）。 "
+            "【输出规范】：1. 第一行必须直接给出正确选项和判定，格式为：‘【判定】：正确/错误。正确答案是：[字母]’。 "
+            "2. 从第二行开始进行名师启发。3. 严禁使用 LaTeX 符号。 "
             "4. 允许并建议使用阿拉伯数字（如 30度、2倍）。5. 语气要温和，只给‘题眼’不给步骤。"
         )
     else:
@@ -56,7 +56,7 @@ def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False):
         return response.choices[0].message.content
     except: return "AI老师正在思考中..."
 
-# --- 4. 侧边栏：全功能管理中心 ---
+# --- 4. 侧边栏管理中心 ---
 with st.sidebar:
     st.header("🏫 皋陶学校管理中心")
     deepseek_key = st.text_input("🔑 DeepSeek Key", type="password")
@@ -114,12 +114,10 @@ if "curr_student" in locals():
             m_cat = st.selectbox("选择知识大类：", list(st.session_state.topic_map.keys()))
             s_cat = st.selectbox("锁定精细主题：", st.session_state.topic_map[m_cat])
 
-            # 【修复 1】：生成题目时，通过 key 值物理重置输入框
+            # 【修复：生成题目时重置输入】
             if st.button("✨ 生成启发式题目"):
                 for key in ["last_review", "last_impact"]:
                     if key in st.session_state: del st.session_state[key]
-                
-                # 强制置空 text_area 的内容
                 if "user_ans_widget" in st.session_state:
                     st.session_state["user_ans_widget"] = ""
                 
@@ -131,26 +129,18 @@ if "curr_student" in locals():
             if "q_text" in st.session_state:
                 st.markdown(f'<div class="question-box">{st.session_state.q_text}</div>', unsafe_allow_html=True)
                 
-                # 给输入框绑定一个固定的 key
-                u_ans = st.text_area(
-                    "✍️ 你的思考（请输入选项字母）：", 
-                    height=100, 
-                    key="user_ans_widget" 
-                )
+                u_ans = st.text_area("✍️ 你的思考（请输入选项字母）：", height=100, key="user_ans_widget")
                 
                 if st.button("🚀 提交并更新图谱"):
                     with st.spinner("名师正在分析中..."):
-                        p_prompt = f"题目：{st.session_state.q_text}\n回答：{u_ans}\n判定对错并点拨。第一行给正确答案。"
+                        p_prompt = f"题目：{st.session_state.q_text}\n回答：{u_ans}\n判定对错并点拨。第一行必须写：【判定】：正确/错误。"
                         review = gao_tao_ai_engine("导师", p_prompt, deepseek_key, is_review=True)
                         
-                        # --- 【修复 2：判定逻辑手术】 ---
-                        # 只看第一行，且必须明确包含“正确”两字才加分
-                        impact = -2 
+                        # --- 【精准修复：只看第一行关键字】 ---
                         first_line = review.split('\n')[0]
-                        if "正确" in first_line and "错误" not in first_line:
-                            impact = 2
+                        impact = 2 if "正确" in first_line and "错误" not in first_line else -2
+                        # --------------------------------------
                         
-                        # 记录与更新
                         supabase.table("study_logs").insert({"student_name": curr_student, "knowledge_point": st.session_state.active_s, "question": st.session_state.q_text, "answer_logic": u_ans, "ai_review": review, "score_impact": impact}).execute()
                         
                         if st.session_state.active_m in s_data:
@@ -185,5 +175,10 @@ if "curr_student" in locals():
                     history_context = "\n".join([f"考点:{l['knowledge_point']} | 判定:{'对' if l['score_impact']>0 else '错'}" for l in logs[:12]])
                     diag_msg = f"该生最近记录：\n{history_context}\n请作为李鹏燕老师，写一份详细分析。1.错题频率最高的细项 2.思维短板分析 3.精准建议。"
                     report = gao_tao_ai_engine("诊断专家", diag_msg, deepseek_key)
-                    st.markdown(f'<div class="report-card"><h2 style="text-align:center; color:#1E88E5;">皋陶数苑：{curr_student} 深度诊断报告</h2><hr>{report}<br><br><p style="text-align:right;"><b>主诊教师：李鹏燕</b></p></div>', unsafe_allow_html=True)
+                    
+                    # 【修复：HTML渲染问题】使用原生 markdown 避免代码块出现
+                    st.markdown(f"### 皋陶数苑：{curr_student} 深度诊断报告")
+                    st.markdown(f"孩子，通过对你最近练习的审计，李老师发现：")
+                    st.divider()
+                    st.write(report)
                     st.balloons()
