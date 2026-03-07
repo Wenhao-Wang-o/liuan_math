@@ -16,7 +16,7 @@ def init_supabase():
 
 supabase = init_supabase()
 
-# --- 2. 炫酷 UI 样式注入 ---
+# --- 2. 炫酷 UI 样式 ---
 st.set_page_config(page_title="皋陶数苑-AI自适应系统", layout="wide")
 st.markdown("""
     <style>
@@ -30,32 +30,27 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. 核心 AI 引擎（语感增强版） ---
+# --- 3. 核心 AI 引擎（名师语感增强版） ---
 def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False):
     if not api_key: return "⚠️ 请在侧边栏输入 API Key"
     client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     
-    # 【核心修改点】：强化启发式、去数学化指令
     if is_review:
         base_instruction = (
             "你现在是皋陶学校数学特级教师李鹏燕。任务：批改。要求：\n"
             "1. 第一行必须写‘【判定】：正确/错误。正确答案是：[字母]’。\n"
             "2. 严禁使用任何 LaTeX 语法（如 $、^、sqrt、/）。\n"
-            "3. 严禁使用枯燥的代数式。所有几何关系必须用汉字描述（如：‘边长的平方’、‘根号2’、‘30度角’）。\n"
-            "4. 回答要具有‘启发性’。不要直接给解题步骤，要通过提问或点拨‘题眼’引导学生思考。"
+            "3. 严禁使用枯燥代数式。所有几何关系必须用汉字描述（如：‘边长的平方’、‘根号2’、‘30度角’）。\n"
+            "4. 启发式点拨，不要给步骤，只给‘题眼’引导学生思考。"
         )
     else:
-        base_instruction = (
-            "你现在是特级教师李鹏燕。任务：命题。要求：\n"
-            "1. 只给题干和选项。2. 严禁 LaTeX 语法。3. 纯文字描述几何情境，允许使用阿拉伯数字。"
-        )
+        base_instruction = "你现在是特级教师李鹏燕。任务：命题。要求：只给题干和选项。严禁 LaTeX，纯文字描述，允许阿拉伯数字。"
         
     try:
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=[{"role": "system", "content": base_instruction + sys_msg},{"role": "user", "content": user_msg}],
-            temperature=0.7, # 提高温度以增加语言的启发性和灵活性
-            max_tokens=800
+            temperature=0.7, max_tokens=800
         )
         return response.choices[0].message.content
     except: return "AI老师正在整理思路..."
@@ -74,20 +69,29 @@ with st.sidebar:
         }
 
     try:
+        # 实时获取数据
         res = supabase.table("student_scores").select("*").order("student_name").execute()
         df = pd.DataFrame(res.data)
         student_list = df["student_name"].tolist()
         curr_student = st.selectbox("👤 选择辅导学生：", student_list)
         
+        # 安全获取学生得分
         s_data = df[df["student_name"] == curr_student].iloc[0]
+        # 自动识别数据库中存在的、且在选题体系中的列
         active_kps = [col for col in s_data.index if col in st.session_state.topic_map.keys()]
+        
         if active_kps:
-            scores = [s_data[kp] for kp in active_kps]
+            # 填补缺失值（NaN 转 0）防止绘图崩溃
+            scores = [float(s_data[kp]) if pd.notnull(s_data[kp]) else 60.0 for kp in active_kps]
             radar_df = pd.DataFrame({"维度": active_kps, "得分": scores})
             fig = px.line_polar(radar_df, r='得分', theta='维度', line_close=True, range_r=[0, 100])
             fig.update_traces(fill='toself', fillcolor='rgba(30, 136, 229, 0.4)', line_color='#1E88E5')
             st.plotly_chart(fig, use_container_width=True)
             recommended_kp = active_kps[scores.index(min(scores))]
+        else:
+            recommended_kp = "全科"
+            scores = [0]
+            st.warning("⚠️ 数据库列与选题大类不匹配")
         
         st.divider()
         with st.expander("🛠️ 系统档案与维护"):
@@ -95,7 +99,13 @@ with st.sidebar:
             new_name = st.text_input("新增姓名：")
             if st.button("➕ 确认入驻"):
                 if new_name:
-                    supabase.table("student_scores").insert({"student_name": new_name, "相似三角形": 60, "二次函数": 60, "圆的性质": 60, "锐角三角函数": 60}).execute()
+                    # 自动为所有当前大类分配初始分 60，防止雷达图报错
+                    init_entry = {"student_name": new_name}
+                    for kp in st.session_state.topic_map.keys():
+                        init_entry[kp] = 60
+                    supabase.table("student_scores").insert(init_entry).execute()
+                    st.success(f"{new_name} 入驻成功")
+                    time.sleep(0.5)
                     st.rerun()
             if st.button("❌ 注销当前学生"):
                 supabase.table("student_scores").delete().eq("student_name", curr_student).execute()
@@ -105,11 +115,8 @@ with st.sidebar:
             new_cat = st.text_input("新增大类：")
             if st.button("➕ 添加大类"):
                 if new_cat: st.session_state.topic_map[new_cat] = ["基础考点"]; st.rerun()
-            target_cat = st.selectbox("为大类添加子项：", list(st.session_state.topic_map.keys()))
-            new_sub = st.text_input(f"新子项名称：")
-            if st.button("➕ 确认添加子项"):
-                if new_sub: st.session_state.topic_map[target_cat].append(new_sub); st.rerun()
-    except: st.error("连接异常")
+    except Exception as e:
+        st.error(f"⚠️ 状态同步中...")
 
 # --- 5. 主界面看板 ---
 st.title(f"🛡️ 智汇皋陶：{curr_student} 的演化空间")
@@ -138,19 +145,21 @@ with tab1:
             for key in ["last_review", "last_impact"]:
                 if key in st.session_state: del st.session_state[key]
             if "user_ans_widget" in st.session_state: st.session_state["user_ans_widget"] = ""
-            st.session_state.q_text = gao_tao_ai_engine("命题专家", f"针对【{s_cat}】出一道单选题", deepseek_key)
+            st.session_state.q_text = gao_tao_ai_engine("专家", f"针对【{s_cat}】考点出一道单选题。不准提图。", deepseek_key)
             st.session_state.active_m, st.session_state.active_s = m_cat, s_cat
             st.rerun()
 
         if "q_text" in st.session_state:
             st.markdown(f'<div class="question-display">{st.session_state.q_text}</div>', unsafe_allow_html=True)
-            u_ans = st.text_area("✍️ 录入你的思考（请输入选项字母）：", height=100, key="user_ans_widget")
+            u_ans = st.text_area("✍️ 录入你的思考（请输入选项）：", height=100, key="user_ans_widget")
             if st.button("🚀 提交并更新图谱"):
                 with st.spinner("名师正在分析中..."):
-                    review = gao_tao_ai_engine("导师", f"题目：{st.session_state.q_text}\n回答：{u_ans}", deepseek_key, is_review=True)
+                    review = gao_tao_ai_engine("导师", f"题：{st.session_state.q_text}\n答：{u_ans}", deepseek_key, is_review=True)
                     first_line = review.split('\n')[0]
                     impact = 2 if "正确" in first_line and "错误" not in first_line else -2
                     supabase.table("study_logs").insert({"student_name": curr_student, "knowledge_point": st.session_state.active_s, "question": st.session_state.q_text, "answer_logic": u_ans, "ai_review": review, "score_impact": impact}).execute()
+                    
+                    # 提交分数
                     if st.session_state.active_m in s_data:
                         new_val = max(0, min(100, float(s_data[st.session_state.active_m]) + impact))
                         supabase.table("student_scores").update({st.session_state.active_m: new_val}).eq("student_name", curr_student).execute()
@@ -167,16 +176,18 @@ with tab1:
 
 with tab2:
     logs = supabase.table("study_logs").select("*").eq("student_name", curr_student).order("created_at", desc=True).execute().data
-    for log in logs:
-        with st.expander(f"📅 {log['created_at'][:16]} | {log['knowledge_point']}"):
-            st.write(f"【原题】：{log['question']}"); st.info(f"【批改】：{log['ai_review']}")
+    if logs:
+        for log in logs:
+            with st.expander(f"📅 {log['created_at'][:16]} | {log['knowledge_point']}"):
+                st.write(f"题：{log['question']}"); st.info(f"批：{log['ai_review']}")
+    else: st.info("暂无成长足迹")
 
 with tab3:
     if st.button("🔍 开启全量数据审计与深度诊断"):
-        with st.spinner("名师正在扫描档案..."):
+        with st.spinner("名师正在审计档案库..."):
+            logs = supabase.table("study_logs").select("*").eq("student_name", curr_student).order("created_at", desc=True).limit(10).execute().data
             if logs:
-                history = "\n".join([f"考点:{l['knowledge_point']} | 判定:{'对' if l['score_impact']>0 else '错'}" for l in logs[:12]])
-                # 诊断报告同样执行去数学化指令
-                report = gao_tao_ai_engine("诊断专家", f"该生记录：\n{history}\n请写一份详细的学情分析。要求：全汉字描述逻辑，严禁LaTeX公式，给出针对性建议。", deepseek_key)
+                history = "\n".join([f"考点:{l['knowledge_point']} | 判定:{'对' if l['score_impact']>0 else '错'}" for l in logs])
+                report = gao_tao_ai_engine("诊断专家", f"记录：\n{history}\n请写全汉字的启发式学情分析及补救建议。严禁LaTeX。", deepseek_key)
                 st.markdown(f'<div class="report-card"><h2 style="text-align:center; color:#1E88E5;">皋陶数苑：{curr_student} 深度诊断报告</h2><hr>{report}<br><br><p style="text-align:right;"><b>主诊教师：李鹏燕</b></p></div>', unsafe_allow_html=True)
                 st.balloons()
