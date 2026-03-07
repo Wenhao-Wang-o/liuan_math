@@ -16,19 +16,19 @@ def init_supabase():
 
 supabase = init_supabase()
 
-# --- 2. 稳健版 UI 样式 ---
+# --- 2. 界面美化 ---
 st.set_page_config(page_title="皋陶数苑-AI自适应系统", layout="wide")
 st.markdown("""
     <style>
     .stApp { background-color: #f8fafc; }
     .metric-card { 
         background: white; padding: 15px; border-radius: 10px; text-align: center; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-top: 4px solid #1E88E5;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-bottom: 4px solid #1E88E5;
     }
     .stButton>button { width: 100%; border-radius: 8px; font-weight: bold; height: 3.2em; }
     .question-box {
-        background-color: #ffffff; padding: 20px; border-radius: 10px; border-left: 8px solid #1E88E5;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.02); margin-bottom: 20px;
+        background-color: #ffffff; padding: 25px; border-radius: 12px; border-left: 10px solid #1E88E5;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 25px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -51,17 +51,17 @@ def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False):
     entropy = str(time.time_ns())[-6:]
 
     if is_review:
-        # 【启发式核心】：禁止公式，强迫汉字点拨
+        # 【名师点拨逻辑】：先给答案，再给大白话启发，允许数字，严禁复杂公式
         base_instruction = (
-            f"识别码:{entropy}。你现在是名师李鹏燕。任务：批改与启发。"
-            "【强制要求】：1. 严禁使用任何代数符号（如 ^, /, *, =, sqrt）。"
-            "2. 数学关系必须用汉字描述（如：‘比值’、‘平方’、‘根号’、‘相等’）。"
-            "3. 不要给步骤，要给‘题眼’启发。第一行必须写：【判定】：正确 或 【判定】：错误。"
+            f"识别码:{entropy}。你现在是皋陶学校数学特级教师李鹏燕。任务：批改。 "
+            "【输出规范】：1. 第一行必须直接给出正确选项，格式为：‘正确答案是：[选项字母]’。 "
+            "2. 第二行开始进行名师启发。3. 严禁使用 LaTeX 符号（如 $、^、sqrt、frac）。 "
+            "4. 允许使用阿拉伯数字（如 45度、3倍、半径为5）。5. 语气要温和、有启发性，不给步骤，只给‘题眼’。"
         )
     else:
         base_instruction = (
-            f"识别码:{entropy}。你现在是名师李鹏燕。任务：命题。"
-            "【要求】：只给题干和选项。纯文字描述，严禁出现符号和‘图’字。"
+            f"识别码:{entropy}。你现在是名师李鹏燕。任务：命题。 "
+            "【要求】：只给题干和选项。纯文字描述几何关系，不准提图，严禁 LaTeX。"
         )
 
     try:
@@ -69,13 +69,12 @@ def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False):
             model="deepseek-chat",
             messages=[{"role": "system", "content": base_instruction + sys_msg},
                       {"role": "user", "content": user_msg}],
-            temperature=0.7, # 提高语感丰富度
-            max_tokens=600
+            temperature=0.4, max_tokens=600
         )
         return response.choices[0].message.content
     except: return "连接中..."
 
-# --- 4. 侧边栏 ---
+# --- 4. 侧边栏与数据初始化 ---
 try:
     df = fetch_student_data()
     student_list = df["student_name"].tolist()
@@ -94,7 +93,7 @@ try:
     deepseek_key = st.sidebar.text_input("🔑 DeepSeek Key", type="password")
 except: st.error("数据连接异常")
 
-# --- 5. 主界面看板 ---
+# --- 5. 主界面 ---
 st.title("🛡️ 智汇皋陶：九年级数学自适应演化系统")
 c1, c2, c3 = st.columns(3)
 with c1: st.markdown(f'<div class="metric-card">👤 学生：{curr_student}</div>', unsafe_allow_html=True)
@@ -106,6 +105,7 @@ tab1, tab2, tab3 = st.tabs(["🎯 演化练习", "📊 成长轨迹", "📜 诊�
 with tab1:
     l_col, r_col = st.columns([3, 2])
     with l_col:
+        st.markdown('<div class="main-card">', unsafe_allow_html=True)
         st.subheader("🛠️ 选题中心")
         topic_map = {
             "相似三角形": ["相似三角形的判定", "相似三角形的性质"],
@@ -118,23 +118,23 @@ with tab1:
         m_cat = st.selectbox("大类：", list(topic_map.keys()), index=list(topic_map.keys()).index(recommended_kp) if recommended_kp in topic_map else 0)
         s_cat = st.selectbox("子主题：", topic_map[m_cat])
 
-        if st.button("✨ 生成练习题目"):
+        if st.button("✨ 生成该主题题目"):
             for key in ["last_review", "last_impact"]:
                 if key in st.session_state: del st.session_state[key]
-            q_prompt = f"针对【{s_cat}】出一道单选题。不准提图。只给题干和选项。"
+            q_prompt = f"针对【{s_cat}】出一道单选题。纯文字描述，只给题干和选项。"
             st.session_state.q_text = gao_tao_ai_engine("命题专家", q_prompt, deepseek_key, is_review=False)
             st.session_state.active_m, st.session_state.active_s = m_cat, s_cat
             st.rerun() 
         
         if "q_text" in st.session_state:
             st.markdown(f'<div class="question-box"><b>📝 练习：{st.session_state.active_s}</b><br><br>{st.session_state.q_text}</div>', unsafe_allow_html=True)
-            u_ans = st.text_area("✍️ 输入你的答案或思路：", height=100)
+            u_ans = st.text_area("✍️ 输入你的答案或思路（如：我选A）：", height=100)
             if st.button("🚀 提交并自动演化"):
-                p_prompt = f"题目：{st.session_state.q_text}\n回答：{u_ans}\n判定对错并点拨。"
+                p_prompt = f"题目：{st.session_state.q_text}\n回答：{u_ans}\n判定对错并点拨。必须先给正确选项。"
                 review = gao_tao_ai_engine("导师", p_prompt, deepseek_key, is_review=True)
                 
-                # 【逻辑优化】：不区分大小写判定
-                impact = 2 if "【判定】：正确" in review or "【判定】：正确".lower() in review.lower() else -2
+                # 判定逻辑：不区分大小写
+                impact = 2 if "正确" in review or "correct" in review.lower() else -2
                 
                 update_ability_auto(curr_student, st.session_state.active_m, impact)
                 supabase.table("study_logs").insert({
@@ -149,6 +149,7 @@ with tab1:
         if "last_review" in st.session_state:
             color = "#10b981" if st.session_state.last_impact > 0 else "#ef4444"
             st.markdown(f'<h2 style="color:{color}; text-align:center;">{"+" if st.session_state.last_impact > 0 else ""}{st.session_state.last_impact}</h2>', unsafe_allow_html=True)
+            # 这里 AI 会先吐出答案，再给出启发
             st.write(st.session_state.last_review)
 
 with tab2:
@@ -168,15 +169,12 @@ with tab3:
         st.divider()
         st.header(f"皋陶数苑：{curr_student} 同学学情诊断书")
         st.subheader("一、 整体画像分析")
-        st.write(f"孩子，这一阶段你的综合能力值已达到 **{sum(scores)/6:.1f}** 分。目前你在 **{best_kp}** 领域展现出了极强的几何直白感，非常棒！")
+        st.write(f"孩子，这一阶段你的综合能力值已达到 **{sum(scores)/6:.1f}** 分。你在 **{best_kp}** 展现了极强的几何直觉！")
         
-        st.subheader("二、 知识盲区诊断")
-        st.write(f"通过系统的 **{len(logs)}** 次交互，我发现你在 **{recommended_kp}** 这一板块仍有挑战，要加油。")
-        
-        st.subheader("三、 导学建议")
+        st.subheader("二、 名师导学建议")
         st.markdown(f"""
-        * **【策略】**：每天针对“{recommended_kp}”进行汉字化逻辑推导，不急着动笔算。
-        * **【反馈】**：多利用系统的“名师点拨”，从文字描述中寻找几何本质。
+        * **【策略】**：针对“{recommended_kp}”板块，多观察边角关系，不要急着动笔。
+        * **【反馈】**：利用系统的“点拨”功能，从大白话描述中寻找几何本质。
         """)
         
         st.write(f"\n\n**—— 您的导学老师：李鹏燕**")
