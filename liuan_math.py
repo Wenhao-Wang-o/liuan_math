@@ -26,39 +26,51 @@ st.markdown("""
     .metric-card:hover { transform: translateY(-5px); }
     .stButton>button { background: linear-gradient(to right, #1E88E5, #1565C0); color: white; border-radius: 12px; font-weight: bold; height: 3.5em; transition: all 0.3s; }
     .question-display { background: #e3f2fd; border-left: 10px solid #1E88E5; padding: 20px; border-radius: 10px; font-size: 1.1em; color: #0d47a1; }
+    .report-card { background: #fff; padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); line-height: 1.8; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. 核心 AI 引擎 ---
+# --- 3. 核心 AI 引擎（语感增强版） ---
 def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False):
     if not api_key: return "⚠️ 请在侧边栏输入 API Key"
     client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+    
+    # 【核心修改点】：强化启发式、去数学化指令
     if is_review:
-        base_instruction = "你现在是李鹏燕老师。任务：批改。要求：第一行必须写‘【判定】：正确/错误。正确答案是：[字母]’。随后启发点拨，准许数字，严禁LaTeX。"
+        base_instruction = (
+            "你现在是皋陶学校数学特级教师李鹏燕。任务：批改。要求：\n"
+            "1. 第一行必须写‘【判定】：正确/错误。正确答案是：[字母]’。\n"
+            "2. 严禁使用任何 LaTeX 语法（如 $、^、sqrt、/）。\n"
+            "3. 严禁使用枯燥的代数式。所有几何关系必须用汉字描述（如：‘边长的平方’、‘根号2’、‘30度角’）。\n"
+            "4. 回答要具有‘启发性’。不要直接给解题步骤，要通过提问或点拨‘题眼’引导学生思考。"
+        )
     else:
-        base_instruction = "你现在是李鹏燕老师。任务：命题。要求：只给题干和选项。纯汉字描述，严禁LaTeX，不准提图。"
+        base_instruction = (
+            "你现在是特级教师李鹏燕。任务：命题。要求：\n"
+            "1. 只给题干和选项。2. 严禁 LaTeX 语法。3. 纯文字描述几何情境，允许使用阿拉伯数字。"
+        )
+        
     try:
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=[{"role": "system", "content": base_instruction + sys_msg},{"role": "user", "content": user_msg}],
-            temperature=0.4, max_tokens=1000
+            temperature=0.7, # 提高温度以增加语言的启发性和灵活性
+            max_tokens=800
         )
         return response.choices[0].message.content
-    except: return "AI老师思考中..."
+    except: return "AI老师正在整理思路..."
 
-# --- 4. 侧边栏：管理中心 (全功能回归) ---
+# --- 4. 侧边栏：管理中心 ---
 with st.sidebar:
     st.header("🏫 皋陶学校管理中心")
     deepseek_key = st.text_input("🔑 API Key", type="password")
     
-    # 初始化课题体系
     if "topic_map" not in st.session_state:
         st.session_state.topic_map = {
             "相似三角形": ["判定定理应用", "相似比与面积关系"],
             "二次函数": ["顶点坐标性质", "抛物线对称性"],
             "圆的性质": ["垂径定理应用", "圆周角性质"],
-            "锐角三角函数": ["特殊角计算", "解直角三角形"],
-            "综合几何": ["辅助线构造", "最值问题"]
+            "锐角三角函数": ["特殊角计算", "解直角三角形"]
         }
 
     try:
@@ -67,7 +79,6 @@ with st.sidebar:
         student_list = df["student_name"].tolist()
         curr_student = st.selectbox("👤 选择辅导学生：", student_list)
         
-        # 实时雷达图
         s_data = df[df["student_name"] == curr_student].iloc[0]
         active_kps = [col for col in s_data.index if col in st.session_state.topic_map.keys()]
         if active_kps:
@@ -78,14 +89,13 @@ with st.sidebar:
             st.plotly_chart(fig, use_container_width=True)
             recommended_kp = active_kps[scores.index(min(scores))]
         
-        # 管理后台
         st.divider()
-        with st.expander("🛠️ 系统档案与体系维护"):
+        with st.expander("🛠️ 系统档案与维护"):
             st.subheader("学生管理")
             new_name = st.text_input("新增姓名：")
             if st.button("➕ 确认入驻"):
                 if new_name:
-                    supabase.table("student_scores").insert({"student_name": new_name, "相似三角形": 60, "二次函数": 60, "圆的性质": 60, "综合几何": 60, "锐角三角函数": 60}).execute()
+                    supabase.table("student_scores").insert({"student_name": new_name, "相似三角形": 60, "二次函数": 60, "圆的性质": 60, "锐角三角函数": 60}).execute()
                     st.rerun()
             if st.button("❌ 注销当前学生"):
                 supabase.table("student_scores").delete().eq("student_name", curr_student).execute()
@@ -102,7 +112,7 @@ with st.sidebar:
     except: st.error("连接异常")
 
 # --- 5. 主界面看板 ---
-st.title(f"🛡️ 智汇皋陶：{curr_student} 的智慧导学驾驶舱")
+st.title(f"🛡️ 智汇皋陶：{curr_student} 的演化空间")
 avg_score = sum(scores)/len(scores) if scores else 0
 
 c1, c2, c3, c4 = st.columns([2, 2, 2, 3])
@@ -110,11 +120,11 @@ with c1: st.markdown(f'<div class="metric-card"><h3>👤 学生</h3><h2>{curr_st
 with c2: st.markdown(f'<div class="metric-card"><h3>🎯 攻坚项</h3><h2 style="color:#D32F2F;">{recommended_kp}</h2></div>', unsafe_allow_html=True)
 with c3: st.markdown(f'<div class="metric-card"><h3>📈 能力值</h3><h2 style="color:#2E7D32;">{avg_score:.1f}</h2></div>', unsafe_allow_html=True)
 with c4:
-    gauge_fig = go.Figure(go.Indicator(mode="gauge+number", value=avg_score, title={'text': "教学质量指数", 'font': {'size': 18}}, gauge={'axis': {'range': [None, 100]}, 'bar': {'color': "#1E88E5"}}))
+    gauge_fig = go.Figure(go.Indicator(mode="gauge+number", value=avg_score, title={'text': "学习质量指数", 'font': {'size': 18}}, gauge={'axis': {'range': [None, 100]}, 'bar': {'color': "#1E88E5"}}))
     gauge_fig.update_layout(height=160, margin=dict(l=10, r=10, t=30, b=10))
     st.plotly_chart(gauge_fig, use_container_width=True)
 
-tab1, tab2, tab3 = st.tabs(["🎯 智能演化练习", "📊 成长轨迹记录", "📜 深度审计诊断"])
+tab1, tab2, tab3 = st.tabs(["🎯 智能演化练习", "📊 成长轨迹轴", "📜 深度审计诊断"])
 
 with tab1:
     l_col, r_col = st.columns([3, 2])
@@ -134,7 +144,7 @@ with tab1:
 
         if "q_text" in st.session_state:
             st.markdown(f'<div class="question-display">{st.session_state.q_text}</div>', unsafe_allow_html=True)
-            u_ans = st.text_area("✍️ 录入你的思考（请输入选项）：", height=100, key="user_ans_widget")
+            u_ans = st.text_area("✍️ 录入你的思考（请输入选项字母）：", height=100, key="user_ans_widget")
             if st.button("🚀 提交并更新图谱"):
                 with st.spinner("名师正在分析中..."):
                     review = gao_tao_ai_engine("导师", f"题目：{st.session_state.q_text}\n回答：{u_ans}", deepseek_key, is_review=True)
@@ -159,13 +169,14 @@ with tab2:
     logs = supabase.table("study_logs").select("*").eq("student_name", curr_student).order("created_at", desc=True).execute().data
     for log in logs:
         with st.expander(f"📅 {log['created_at'][:16]} | {log['knowledge_point']}"):
-            st.write(f"题：{log['question']}"); st.info(f"批：{log['ai_review']}")
+            st.write(f"【原题】：{log['question']}"); st.info(f"【批改】：{log['ai_review']}")
 
 with tab3:
     if st.button("🔍 开启全量数据审计与深度诊断"):
-        with st.spinner("正在扫描档案库..."):
+        with st.spinner("名师正在扫描档案..."):
             if logs:
                 history = "\n".join([f"考点:{l['knowledge_point']} | 判定:{'对' if l['score_impact']>0 else '错'}" for l in logs[:12]])
-                report = gao_tao_ai_engine("诊断专家", f"该生记录：\n{history}\n请写详细分析及补救建议。", deepseek_key)
+                # 诊断报告同样执行去数学化指令
+                report = gao_tao_ai_engine("诊断专家", f"该生记录：\n{history}\n请写一份详细的学情分析。要求：全汉字描述逻辑，严禁LaTeX公式，给出针对性建议。", deepseek_key)
                 st.markdown(f'<div class="report-card"><h2 style="text-align:center; color:#1E88E5;">皋陶数苑：{curr_student} 深度诊断报告</h2><hr>{report}<br><br><p style="text-align:right;"><b>主诊教师：李鹏燕</b></p></div>', unsafe_allow_html=True)
                 st.balloons()
