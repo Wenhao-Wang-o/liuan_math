@@ -41,7 +41,8 @@ def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False):
             "1. 第一行必须写‘【判定】：正确/错误。正确答案是：[字母]’。\n"
             "2. 严禁使用任何 LaTeX 语法（如 $、^、sqrt、/）。\n"
             "3. 严禁使用枯燥代数式。所有几何关系必须用汉字描述（如：‘边长的平方’、‘根号2’、‘30度角’）。\n"
-            "4. 启发式点拨，不要给步骤，只给‘题眼’引导学生思考。"
+            "4. 一定要用老师的语气，温柔一点的老师，悉心指导。\n"
+            "5. 启发式点拨，不要给步骤，只给‘题眼’引导学生思考。"
         )
     else:
         base_instruction = "你现在是特级教师李鹏燕。任务：命题。要求：只给题干和选项。严禁 LaTeX，纯文字描述，允许阿拉伯数字。"
@@ -182,3 +183,4 @@ with tab3:
                 report = gao_tao_ai_engine("诊断专家", f"记录：\n{history}\n请写全汉字的启发式学情分析及补救建议。严禁LaTeX。", deepseek_key)
                 st.markdown(f'<div class="report-card"><h2 style="text-align:center; color:#1E88E5;">皋陶数苑：{curr_student} 深度诊断报告</h2><hr>{report}<br><br><p style="text-align:right;"><b>主诊教师：李鹏燕</b></p></div>', unsafe_allow_html=True)
                 st.balloons()
+
