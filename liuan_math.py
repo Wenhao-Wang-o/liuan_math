@@ -160,12 +160,13 @@ with st.sidebar:
         st.divider()
 
         # --- 🌟 优化后的：Word 全自动导入面板（带强力过程回显） ---
+        # --- 🌟 最终修复版：Word 导入面板 ---
         with st.expander("📂 Word一键智能识别入库", expanded=True):
-            st.info("上传作业文档，系统将实时提取文字与几何图形。")
+            st.info("上传 Word 作业，系统将自动拆解并匹配几何图形。")
             word_file = st.file_uploader("选择 Word 文件 (.docx)", type=["docx"])
             
             if word_file:
-                # --- 即时预览（不点按钮也能看到读到了什么） ---
+                # 即时文字预览
                 doc_p = docx.Document(word_file)
                 preview = "\n".join([p.text for p in doc_p.paragraphs if p.text.strip()][:3])
                 st.caption(f"📝 识别到内容开头：\n{preview}...")
@@ -174,30 +175,42 @@ with st.sidebar:
                     if not deepseek_key:
                         st.error("🔑 请先填入 API Key")
                     else:
-                        with st.status("🔍 正在执行图文逻辑匹配...", expanded=True) as status:
+                        with st.status("🔍 正在图文逻辑对齐...", expanded=True) as status:
                             st.write("📦 正在物理提取几何图形并同步云端...")
-                            imported_qs = process_word_auto_import(word_file, deepseek_key)
+                            # 1. 执行解析
+                            qs = process_word_auto_import(word_file, deepseek_key)
                             
-                            if imported_qs:
-                                st.write(f"✅ AI 成功识别 {len(imported_qs)} 道题目，写入数据库中...")
-                                for q in imported_qs:
-                                    if len(q.get("question_text","")) > 5:
-                                        supabase.table("manual_question_bank").insert(q).execute()
-                                
-                                status.update(label="🎉 导入流程全部完成！", state="complete")
-                                st.success(f"成功导入 {len(imported_qs)} 道精品题！")
-                                
-                                # --- 重点：展示本次解析出的题目清单 ---
-                                st.write("📥 **入库结果预览：**")
-                                res_df = pd.DataFrame(imported_qs)
-                                st.dataframe(res_df[['knowledge_point', 'correct_answer']])
-                                
-                                st.balloons()
-                                time.sleep(5)  # 留出 5 秒看结果
-                                st.rerun()
+                            if qs:
+                                st.write(f"🚀 AI 已识别 {len(qs)} 道题目，准备批量入库...")
+                                try:
+                                    # 🌟 核心改进：批量插入，只需 1 秒即可完成
+                                    # 过滤掉无效数据
+                                    valid_qs = [q for q in qs if len(q.get("question_text","")) > 5]
+                                    
+                                    if valid_qs:
+                                        # 一次性把列表塞进数据库
+                                        supabase.table("manual_question_bank").insert(valid_qs).execute()
+                                        
+                                        status.update(label="🎉 导入全流程已完成！", state="complete")
+                                        st.success(f"成功导入 {len(valid_qs)} 道精品题！")
+                                        
+                                        # 2. 成果展示区
+                                        st.write("### 📥 本次入库结果明细")
+                                        res_df = pd.DataFrame(valid_qs)
+                                        # 仅展示关键列
+                                        display_cols = [c for c in ['knowledge_point', 'correct_answer', 'image_url'] if c in res_df.columns]
+                                        st.dataframe(res_df[display_cols])
+                                        
+                                        st.balloons()
+                                        # 💡 注意：此处暂不执行 rerun，让老师看完结果，手动刷新即可
+                                    else:
+                                        st.warning("识别结果为空，请检查文档题号格式。")
+                                except Exception as db_err:
+                                    status.update(label="❌ 数据库写入出错", state="error")
+                                    st.error(f"写入失败: {str(db_err)}")
                             else:
-                                status.update(label="❌ 解析未识别到题目", state="error")
-                                st.error("AI未能识别题目格式，请检查文档是否有题号。")
+                                status.update(label="❌ AI 未能识别题目", state="error")
+                                st.error("AI未能识别题目格式，请确认文档。")
 
         with st.expander("🛠️ 系统维护"):
             new_name = st.text_input("新增姓名：")
