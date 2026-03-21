@@ -155,18 +155,53 @@ with st.sidebar:
         
         st.divider()
         # --- 🌟 核心新增：Word 自动化全流程导入面板 ---
-        with st.expander("📂 Word一键智能识别入库", expanded=False):
-            st.info("上传 Word 作业，系统将自动拆解题目并匹配文档内的几何图形。")
+        # --- 🌟 优化后的：Word 全自动导入面板（带即时回显） ---
+        with st.expander("📂 Word一键智能识别入库", expanded=True):
+            st.info("上传 Word 作业，系统将实时提取文字与几何图形。")
             word_file = st.file_uploader("选择 Word 文件 (.docx)", type=["docx"])
-            if word_file and st.button("🚀 开始全自动识别入库"):
-                if not deepseek_key: st.warning("请填入 API Key")
-                else:
-                    with st.spinner("AI 正在深度解析文档并同步图形..."):
-                        imported_qs = process_word_auto_import(word_file, deepseek_key)
-                        if imported_qs:
-                            for q in imported_qs: supabase.table("manual_question_bank").insert(q).execute()
-                            st.success(f"成功！已入库 {len(imported_qs)} 道题。")
-                            st.balloons(); time.sleep(1); st.rerun()
+            
+            if word_file:
+                # --- 第一步：即时回显（让用户知道系统读到了文件） ---
+                doc_preview = docx.Document(word_file)
+                preview_text = "\n".join([p.text for p in doc_preview.paragraphs if p.text.strip()][:5])
+                st.write("📝 **识别内容片段预览：**")
+                st.caption(preview_text + "...")
+                
+                # --- 第二步：正式开始解析 ---
+                if st.button("🚀 开始 AI 深度识别并入库"):
+                    if not deepseek_key:
+                        st.error("❌ 报错：请先在上方输入 API Key")
+                    else:
+                        with st.status("🔍 正在执行图文逻辑匹配...", expanded=True) as status:
+                            st.write("📦 正在物理提取几何图形并同步云端存储桶...")
+                            # 执行您的 process_word_auto_import 函数
+                            imported_qs = process_word_auto_import(word_file, deepseek_key)
+                            
+                            if imported_qs:
+                                st.write(f"✅ AI 成功识别 {len(imported_qs)} 道题目，正在写入数据库...")
+                                # 写入 Supabase
+                                for q in imported_qs:
+                                    supabase.table("manual_question_bank").insert(q).execute()
+                                
+                                status.update(label="🎉 入库流程全部完成！", state="complete", expanded=False)
+                                
+                                # --- 第三步：结果回显（用表格展示成果） ---
+                                st.success(f"成功导入 {len(imported_qs)} 道题目！")
+                                st.write("### 📥 本次入库题目明细")
+                                df_res = pd.DataFrame(imported_qs)
+                                if 'image_url' in df_res.columns:
+                                    # 如果有图片，展示缩略图链接
+                                    st.dataframe(df_res[['knowledge_point', 'question_text', 'correct_answer', 'image_url']])
+                                else:
+                                    st.dataframe(df_res[['knowledge_point', 'question_text', 'correct_answer']])
+                                
+                                st.balloons()
+                                # 延迟刷新，让老师看清结果
+                                time.sleep(3)
+                                st.rerun()
+                            else:
+                                status.update(label="❌ 解析失败", state="error")
+                                st.error("AI 未能在文档中识别到标准格式的题目，请确保文档中有题号（如：1．）")
 
         with st.expander("🛠️ 系统维护"):
             new_name = st.text_input("新增姓名：")
