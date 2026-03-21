@@ -188,3 +188,49 @@ with tab3:
                 report = gao_tao_ai_engine("诊断专家", f"记录：\n{history}\n请写汉字点拨式诊断分析。严禁LaTeX。", deepseek_key)
                 st.markdown(f'<div class="report-card"><h2 style="text-align:center; color:#1E88E5;">皋陶数苑：{curr_student} 诊断报告</h2><hr>{report}<br><br><p style="text-align:right;"><b>主诊教师：李鹏燕</b></p></div>', unsafe_allow_html=True)
                 st.balloons()
+# --- 核心逻辑更新：选题函数 ---
+def get_question(m_cat, s_cat, api_key):
+    # 1. 尝试从自有题库抽取
+    res = supabase.table("manual_question_bank").select("*").eq("knowledge_point", m_cat).eq("sub_topic", s_cat).execute()
+    
+    if res.data:
+        # 如果有录入的题目，随机选一个
+        import random
+        q_data = random.choice(res.data)
+        return f"{q_data['question_text']}\n{q_data['options']}", True # True 表示是录入题
+    else:
+        # 2. 如果题库没题，走 AI 命题
+        q_prompt = f"针对【{s_cat}】考点出一道单选题。不准提图。只给题干和选项。"
+        ai_q = gao_tao_ai_engine("专家", q_prompt, api_key)
+        return ai_q, False
+
+# --- UI 部分：侧边栏管理中心增加录入功能 ---
+with st.sidebar:
+    # ... 原有代码 ...
+    with st.expander("📝 录入自有精品题库"):
+        m_cat_input = st.selectbox("归属大类", list(st.session_state.topic_map.keys()), key="in_m")
+        s_cat_input = st.selectbox("归属子项", st.session_state.topic_map[m_cat_input], key="in_s")
+        q_txt = st.text_area("题干描述：")
+        q_opt = st.text_area("选项（如 A.xx B.xx）：")
+        q_ans = st.selectbox("正确答案", ["A", "B", "C", "D"])
+        
+        if st.button("📥 确认入库"):
+            if q_txt and q_opt:
+                supabase.table("manual_question_bank").insert({
+                    "knowledge_point": m_cat_input,
+                    "sub_topic": s_cat_input,
+                    "question_text": q_txt,
+                    "options": q_opt,
+                    "correct_answer": q_ans
+                }).execute()
+                st.success("题目已同步至云端题库！")
+                st.rerun()
+
+# --- 主界面选题按钮逻辑修改 ---
+if st.button("✨ 生成启发式题目"):
+    # 清理状态...
+    st.session_state.q_text, is_manual = get_question(m_cat, s_cat, deepseek_key)
+    st.session_state.active_m, st.session_state.active_s = m_cat, s_cat
+    # 标记是否为自有题，方便后续批改逻辑
+    st.session_state.is_manual = is_manual 
+    st.rerun()
