@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from openai import OpenAI
 from supabase import create_client
 import time
+import random
 
 # --- 1. 核心配置 ---
 SUPABASE_URL = "https://jjewahmunvpxvcdijkut.supabase.co"
@@ -30,7 +31,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. 核心 AI 引擎 ---
+# --- 3. 核心功能函数 ---
 def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False):
     if not api_key: return "⚠️ 请在侧边栏输入 API Key"
     client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
@@ -38,12 +39,13 @@ def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False):
         base_instruction = (
             "你现在是皋陶学校数学特级教师李鹏燕。任务：批改。要求：\n"
             "1. 第一行必须写‘【判定】：正确/错误。正确答案是：[字母]’。\n"
-            "2. 严禁使用任何 LaTeX 语法。\n"
-            "3. 严禁使用枯燥代数式。所有几何关系必须用汉字描述。\n"
-            "4. 启发式点拨，不要给步骤，只给‘题眼’引导学生思考。"
+            "2. 严禁使用任何 LaTeX 语法（如 $、^、sqrt、/）。\n"
+            "3. 严禁使用枯燥代数式。所有几何关系必须用汉字描述（如：‘边长的平方’、‘根号2’、‘30度角’）。\n"
+            "4. 一定要用比较温柔的语气，以李鹏燕老师的口吻给出回答\n"
+            "5. 启发式点拨，不要给步骤，只给‘题眼’引导学生思考。"
         )
     else:
-        base_instruction = "你现在是特级教师李鹏燕。任务：命题。要求：只给题干和选项。严禁 LaTeX，纯文字描述。"
+        base_instruction = "你现在是特级教师李鹏燕。任务：命题。要求：只给题干和选项。严禁 LaTeX，纯文字描述，允许阿拉伯数字。"
     try:
         response = client.chat.completions.create(
             model="deepseek-chat",
@@ -52,6 +54,25 @@ def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False):
         )
         return response.choices[0].message.content
     except: return "AI老师正在整理思路..."
+
+def get_question(m_cat, s_cat, api_key):
+    """【新增长点】选题逻辑：优先本地题库，本地无题则由AI生成"""
+    try:
+        # 1. 尝试从自有题库抽取
+        res = supabase.table("manual_question_bank").select("*").eq("knowledge_point", m_cat).eq("sub_topic", s_cat).execute()
+        if res.data:
+            q_data = random.choice(res.data)
+            # 将正确答案存入 session_state 供批改阶段参考
+            st.session_state.manual_correct_ans = q_data['correct_answer']
+            return f"{q_data['question_text']}\n{q_data['options']}", True
+        else:
+            # 2. 如果题库没题，走 AI 命题
+            q_prompt = f"针对【{s_cat}】考点出一道单选题。不准提图。只给题干和选项。"
+            ai_q = gao_tao_ai_engine("专家", q_prompt, api_key)
+            return ai_q, False
+    except:
+        # 兜底 AI 逻辑
+        return gao_tao_ai_engine("专家", f"针对【{s_cat}】出一道单选题", api_key), False
 
 # --- 4. 侧边栏：管理中心 ---
 with st.sidebar:
@@ -84,27 +105,34 @@ with st.sidebar:
             st.plotly_chart(fig, use_container_width=True)
             recommended_kp = active_kps[scores.index(min(scores))]
             
-            # --- 🌟 核心修改：全员热力图放在侧边栏 ---
+            # --- 全员能力概览热力图 ---
             st.write("---")
             st.subheader("📊 全员能力概览")
             heat_df = df.set_index("student_name")[active_kps].copy()
-            fig_heat = px.imshow(
-                heat_df,
-                text_auto=True,
-                aspect="auto",
-                color_continuous_scale="RdYlGn",
-                labels=dict(color="能力")
-            )
-            # 优化侧边栏布局：减小高度，隐藏颜色条以腾出空间
+            fig_heat = px.imshow(heat_df, text_auto=True, aspect="auto", color_continuous_scale="RdYlGn", labels=dict(color="能力"))
             fig_heat.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), coloraxis_showscale=False)
             st.plotly_chart(fig_heat, use_container_width=True)
-            
         else:
             recommended_kp = "全科"; scores = [0]
         
         st.divider()
-        with st.expander("🛠️ 系统档案与维护"):
-            st.subheader("学生管理")
+        # --- 🌟 新增长点：手动录入界面 ---
+        with st.expander("📝 录入自有精品题库"):
+            m_cat_input = st.selectbox("归属大类", list(st.session_state.topic_map.keys()), key="in_m")
+            s_cat_input = st.selectbox("归属子项", st.session_state.topic_map[m_cat_input], key="in_s")
+            q_txt = st.text_area("题干描述：", placeholder="例如：已知两个相似三角形，相似比为...")
+            q_opt = st.text_area("选项（请按 A.xx B.xx 格式）：")
+            q_ans = st.selectbox("正确答案字母", ["A", "B", "C", "D"])
+            if st.button("📥 确认同步至云端"):
+                if q_txt and q_opt:
+                    supabase.table("manual_question_bank").insert({
+                        "knowledge_point": m_cat_input, "sub_topic": s_cat_input,
+                        "question_text": q_txt, "options": q_opt, "correct_answer": q_ans
+                    }).execute()
+                    st.success("题目入库成功！")
+                    time.sleep(0.5); st.rerun()
+
+        with st.expander("🛠️ 系统档案维护"):
             new_name = st.text_input("新增姓名：")
             if st.button("➕ 确认入驻"):
                 if new_name:
@@ -116,7 +144,7 @@ with st.sidebar:
                 supabase.table("student_scores").delete().eq("student_name", curr_student).execute()
                 st.rerun()
             st.divider()
-            new_cat = st.text_input("新增大类：")
+            new_cat = st.text_input("新增考点大类：")
             if st.button("➕ 添加大类"):
                 if new_cat: st.session_state.topic_map[new_cat] = ["基础考点"]; st.rerun()
     except Exception as e:
@@ -143,11 +171,15 @@ if "curr_student" in locals() and curr_student:
             m_cat = st.selectbox("选择知识大类：", list(st.session_state.topic_map.keys()))
             s_cat = st.selectbox("锁定精细主题：", st.session_state.topic_map[m_cat])
 
+            # 【修改点】点击生成题目：优先调取本地题库
             if st.button("✨ 生成启发式题目"):
                 for key in ["last_review", "last_impact"]:
                     if key in st.session_state: del st.session_state[key]
                 if "user_ans_widget" in st.session_state: st.session_state["user_ans_widget"] = ""
-                st.session_state.q_text = gao_tao_ai_engine("专家", f"针对【{s_cat}】考点出一道单选题。不准提图。", deepseek_key)
+                
+                # 执行优先本地逻辑
+                st.session_state.q_text, is_manual = get_question(m_cat, s_cat, deepseek_key)
+                st.session_state.is_manual = is_manual
                 st.session_state.active_m, st.session_state.active_s = m_cat, s_cat
                 st.rerun()
 
@@ -155,10 +187,17 @@ if "curr_student" in locals() and curr_student:
                 st.markdown(f'<div class="question-display">{st.session_state.q_text}</div>', unsafe_allow_html=True)
                 u_ans = st.text_area("✍️ 录入你的思考：", height=100, key="user_ans_widget")
                 if st.button("🚀 提交并更新图谱"):
-                    with st.spinner("分析中..."):
-                        review = gao_tao_ai_engine("导师", f"题：{st.session_state.q_text}\n答：{u_ans}", deepseek_key, is_review=True)
+                    with st.spinner("名师正在分析中..."):
+                        # 如果是自有题库题目，我们在提示词中加入正确答案辅助AI点拨
+                        p_msg = f"题目内容：{st.session_state.q_text}\n学生回答：{u_ans}\n"
+                        if st.session_state.is_manual:
+                            p_msg += f"已知此题正确答案字母是：{st.session_state.manual_correct_ans}\n"
+                        p_msg += "任务：判定对错并给出温婉的启发。第一行必须写判定结果。"
+                        
+                        review = gao_tao_ai_engine("导师", p_msg, deepseek_key, is_review=True)
                         first_line = review.split('\n')[0]
                         impact = 2 if "正确" in first_line and "错误" not in first_line else -2
+                        
                         supabase.table("study_logs").insert({"student_name": curr_student, "knowledge_point": st.session_state.active_s, "question": st.session_state.q_text, "answer_logic": u_ans, "ai_review": review, "score_impact": impact}).execute()
                         if st.session_state.active_m in s_data:
                             new_val = max(0, min(100, float(s_data[st.session_state.active_m]) + impact))
@@ -176,61 +215,17 @@ if "curr_student" in locals() and curr_student:
 
 with tab2:
     logs = supabase.table("study_logs").select("*").eq("student_name", curr_student).order("created_at", desc=True).execute().data if "curr_student" in locals() else []
-    for log in logs:
-        with st.expander(f"📅 {log['created_at'][:16]} | {log['knowledge_point']}"):
-            st.write(f"题：{log['question']}"); st.info(f"批：{log['ai_review']}")
+    if logs:
+        for log in logs:
+            with st.expander(f"📅 {log['created_at'][:16]} | {log['knowledge_point']}"):
+                st.write(f"题：{log['question']}"); st.info(f"批：{log['ai_review']}")
+    else: st.info("暂无成长足迹")
 
 with tab3:
     if st.button("🔍 开启全量数据审计与深度诊断"):
         with st.spinner("审计中..."):
             if logs:
-                history = "\n".join([f"考点:{l['knowledge_point']} | 判定:{'对' if l['score_impact']>0 else '错'}" for l in logs[:10]])
-                report = gao_tao_ai_engine("诊断专家", f"记录：\n{history}\n请写汉字点拨式诊断分析。严禁LaTeX。", deepseek_key)
+                history = "\n".join([f"考点:{l['knowledge_point']} | 判定:{l['score_impact']}" for l in logs[:10]])
+                report = gao_tao_ai_engine("诊断专家", f"记录：\n{history}\n请写汉字启发分析。严禁LaTeX。", deepseek_key)
                 st.markdown(f'<div class="report-card"><h2 style="text-align:center; color:#1E88E5;">皋陶数苑：{curr_student} 诊断报告</h2><hr>{report}<br><br><p style="text-align:right;"><b>主诊教师：李鹏燕</b></p></div>', unsafe_allow_html=True)
                 st.balloons()
-# --- 核心逻辑更新：选题函数 ---
-def get_question(m_cat, s_cat, api_key):
-    # 1. 尝试从自有题库抽取
-    res = supabase.table("manual_question_bank").select("*").eq("knowledge_point", m_cat).eq("sub_topic", s_cat).execute()
-    
-    if res.data:
-        # 如果有录入的题目，随机选一个
-        import random
-        q_data = random.choice(res.data)
-        return f"{q_data['question_text']}\n{q_data['options']}", True # True 表示是录入题
-    else:
-        # 2. 如果题库没题，走 AI 命题
-        q_prompt = f"针对【{s_cat}】考点出一道单选题。不准提图。只给题干和选项。"
-        ai_q = gao_tao_ai_engine("专家", q_prompt, api_key)
-        return ai_q, False
-
-# --- UI 部分：侧边栏管理中心增加录入功能 ---
-with st.sidebar:
-    # ... 原有代码 ...
-    with st.expander("📝 录入自有精品题库"):
-        m_cat_input = st.selectbox("归属大类", list(st.session_state.topic_map.keys()), key="in_m")
-        s_cat_input = st.selectbox("归属子项", st.session_state.topic_map[m_cat_input], key="in_s")
-        q_txt = st.text_area("题干描述：")
-        q_opt = st.text_area("选项（如 A.xx B.xx）：")
-        q_ans = st.selectbox("正确答案", ["A", "B", "C", "D"])
-        
-        if st.button("📥 确认入库"):
-            if q_txt and q_opt:
-                supabase.table("manual_question_bank").insert({
-                    "knowledge_point": m_cat_input,
-                    "sub_topic": s_cat_input,
-                    "question_text": q_txt,
-                    "options": q_opt,
-                    "correct_answer": q_ans
-                }).execute()
-                st.success("题目已同步至云端题库！")
-                st.rerun()
-
-# --- 主界面选题按钮逻辑修改 ---
-if st.button("✨ 生成启发式题目"):
-    # 清理状态...
-    st.session_state.q_text, is_manual = get_question(m_cat, s_cat, deepseek_key)
-    st.session_state.active_m, st.session_state.active_s = m_cat, s_cat
-    # 标记是否为自有题，方便后续批改逻辑
-    st.session_state.is_manual = is_manual 
-    st.rerun()
