@@ -74,57 +74,63 @@ def upload_img_to_storage(img_data):
     except: return None
 
 def process_word_auto_import(file, api_key):
-    """【专家版】带物理占位符的图文对齐解析"""
+    """【终极图文物理关联版】直接让 AI 按照物理顺序拆解全文"""
     try:
         from docx.opc.constants import RELATIONSHIP_TYPE as RT
         doc = docx.Document(file)
         
-        # 1. 建立图片索引并同步上传
-        image_mapping = {} # 存储 {rId: url}
-        rel_ids = [] # 记录图片出现的顺序
-        
-        # 扫描文档中的所有图片关系
+        # 1. 物理提取图片并上传，建立顺序索引
+        img_anchors = {} # 存储 rId 到 URL 的映射
         rels = doc.part.rels
         for rId in rels:
             if rels[rId].reltype == RT.IMAGE:
-                img_url = upload_img_to_storage(rels[rId].target_part.blob)
-                if img_url:
-                    image_mapping[rId] = img_url
+                url = upload_img_to_storage(rels[rId].target_part.blob)
+                if url: img_anchors[rId] = url
 
-        # 2. 读取文字并在图片位置插入占位符
-        text_with_markers = []
+        # 2. 遍历全文，在图片出现的原位植入【锚点】
+        processed_text_blocks = []
         for p in doc.paragraphs:
-            paragraph_text = p.text.strip()
-            # 检查段落内是否有图片
-            img_in_para = p._element.xpath('.//a:blip/@r:embed')
-            if img_in_para:
-                for rId in img_in_para:
-                    if rId in image_mapping:
-                        paragraph_text += f" [图片参考地址:{image_mapping[rId]}]"
+            text = p.text.strip()
+            # 物理检查：该段落里是否藏着图片？
+            imgs_in_p = p._element.xpath('.//a:blip/@r:embed')
+            if imgs_in_p:
+                for rId in imgs_in_p:
+                    if rId in img_anchors:
+                        text += f" [物理图源锚点:{img_anchors[rId]}]"
             
-            if paragraph_text:
-                # 标准化题号：将全角点转为半角
-                paragraph_text = paragraph_text.replace("．", ".").replace("（", "(").replace("）", ")")
-                text_with_markers.append(paragraph_text)
-
-        full_content = "\n".join(text_with_markers)
-
-        # 3. 让 DeepSeek 执行结构化拆解
-        # 优化提示词，强制要求识别全文（针对您的周末作业文档）
-        sys_prompt = """你是一个数学特级教师。任务：从混合了图片地址的文本中拆解题目。
-        规则：
-        1. 文档包含23道及以上题目，请从第1题识别到最后一题，不要遗漏。
-        2. 如果题干后面紧跟[图片参考地址:...]，请将其存入 image_url 字段。
-        3. 知识大类必须为：相似三角形、二次函数、圆的性质、锐角三角函数。
-        4. 所有数学公式（如根号、平方）必须转为汉字大白话。
-        格式：严格JSON {"questions": [{"knowledge_point":"", "question_text":"", "options":"", "correct_answer":"", "image_url":""}]}"""
-
-        # 调用 AI (针对您的文档，增加输入长度到 8000)
-        res_json = gao_tao_ai_engine(sys_prompt, full_content[:8000], api_key, is_json=True)
+            if text:
+                # 标准化题号字符 
+                text = text.replace("．", ".").replace("（", "(").replace("）", ")")
+                processed_text_blocks.append(text)
         
-        return json.loads(res_json).get("questions", [])
+        full_stream = "\n".join(processed_text_blocks)
+
+        # 3. 给 DeepSeek 下达“穷举式”拆解指令
+        sys_prompt = """你是一个数学题库结构化专家。
+        任务：从给定的文本流中，精准还原所有数学题。
+        规则：
+        1. 必须识别文档中从1.到23.的所有题目，不准跳题，不准只选4题。
+        2. 图片关联：如果题干中提到“如图”且后面紧跟[物理图源锚点:URL]，必须将该URL存入 image_url。
+        3. 知识分类：必须归类为（相似三角形、二次函数、圆的性质、锐角三角函数）。
+        4. 公式处理：严禁 LaTeX，所有根号、平方、三角函数必须转为汉字大白话（如：根号16）。
+        格式：严格返回 JSON {"questions": [...]}。"""
+
+        # 🌟 关键：调高 max_tokens 至 8192，确保长文档不截断
+        client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": f"请拆解以下全文，包含23道题：\n\n{full_stream[:10000]}"}
+            ],
+            temperature=0.3,
+            max_tokens=8192, # 足够装下整份卷子
+            response_format={"type": "json_object"}
+        )
+        
+        return json.loads(response.choices[0].message.content).get("questions", [])
     except Exception as e:
-        st.error(f"自动化关联失败: {str(e)}")
+        st.error(f"解析链路中断: {str(e)}")
         return []
 
 def get_question(m_cat, s_cat, api_key):
