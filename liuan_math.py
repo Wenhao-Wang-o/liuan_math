@@ -74,44 +74,57 @@ def upload_img_to_storage(img_data):
     except: return None
 
 def process_word_auto_import(file, api_key):
-    """【加固版】全自动提取 Word 文字、题目及对应图片"""
+    """【专家版】带物理占位符的图文对齐解析"""
     try:
+        from docx.opc.constants import RELATIONSHIP_TYPE as RT
         doc = docx.Document(file)
-        text_content = []
-        found_image_urls = []
+        
+        # 1. 建立图片索引并同步上传
+        image_mapping = {} # 存储 {rId: url}
+        rel_ids = [] # 记录图片出现的顺序
+        
+        # 扫描文档中的所有图片关系
+        rels = doc.part.rels
+        for rId in rels:
+            if rels[rId].reltype == RT.IMAGE:
+                img_url = upload_img_to_storage(rels[rId].target_part.blob)
+                if img_url:
+                    image_mapping[rId] = img_url
 
-        # 1. 物理扫描图片并上传 (保持不变)
-        for rel in doc.part.rels.values():
-            if "image" in rel.target_ref:
-                img_url = upload_img_to_storage(rel.target_part.blob)
-                if img_url: found_image_urls.append(img_url)
-
-        # 2. 提取文本并进行“格式清洗”
+        # 2. 读取文字并在图片位置插入占位符
+        text_with_markers = []
         for p in doc.paragraphs:
-            t = p.text.strip()
-            if t and "装订线" not in t and "学号" not in t:
-                t = t.replace("．", ".").replace("（", "(").replace("）", ")")
-                text_content.append(t)
+            paragraph_text = p.text.strip()
+            # 检查段落内是否有图片
+            img_in_para = p._element.xpath('.//a:blip/@r:embed')
+            if img_in_para:
+                for rId in img_in_para:
+                    if rId in image_mapping:
+                        paragraph_text += f" [图片参考地址:{image_mapping[rId]}]"
+            
+            if paragraph_text:
+                # 标准化题号：将全角点转为半角
+                paragraph_text = paragraph_text.replace("．", ".").replace("（", "(").replace("）", ")")
+                text_with_markers.append(paragraph_text)
+
+        full_content = "\n".join(text_with_markers)
+
+        # 3. 让 DeepSeek 执行结构化拆解
+        # 优化提示词，强制要求识别全文（针对您的周末作业文档）
+        sys_prompt = """你是一个数学特级教师。任务：从混合了图片地址的文本中拆解题目。
+        规则：
+        1. 文档包含23道及以上题目，请从第1题识别到最后一题，不要遗漏。
+        2. 如果题干后面紧跟[图片参考地址:...]，请将其存入 image_url 字段。
+        3. 知识大类必须为：相似三角形、二次函数、圆的性质、锐角三角函数。
+        4. 所有数学公式（如根号、平方）必须转为汉字大白话。
+        格式：严格JSON {"questions": [{"knowledge_point":"", "question_text":"", "options":"", "correct_answer":"", "image_url":""}]}"""
+
+        # 调用 AI (针对您的文档，增加输入长度到 8000)
+        res_json = gao_tao_ai_engine(sys_prompt, full_content[:8000], api_key, is_json=True)
         
-        # 🌟 优化点：增加处理文本长度，确保能识别更多题目
-        full_raw_text = "\n".join(text_content)
-        
-        # 3. 升级 AI 识别指令
-        sys_prompt = """你是一个初中数学题库专家。任务：从文本中精准提取“单选题”。
-        要求：
-        1. 题目序号清晰，大类需匹配：相似三角形、二次函数、圆的性质、锐角三角函数。
-        2. 如果题干提到“如图”，必须按顺序关联提供的图片URL。
-        3. 格式：严格返回 JSON {"questions": [...]}，包含知识点、题干、选项、答案、图片URL。
-        4. 转换：严禁 LaTeX，必须转为汉字描述。"""
-        
-        # 发送更多内容给 AI 以识别更多题目 
-        user_msg = f"内容：\n{full_raw_text[:6000]}\n\n可用图片URL：\n{found_image_urls}"
-        res_json = gao_tao_ai_engine(sys_prompt, user_msg, api_key, is_json=True)
-        
-        result = json.loads(res_json).get("questions", [])
-        return result
+        return json.loads(res_json).get("questions", [])
     except Exception as e:
-        st.error(f"解析细节偏差: {str(e)}")
+        st.error(f"自动化关联失败: {str(e)}")
         return []
 
 def get_question(m_cat, s_cat, api_key):
