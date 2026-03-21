@@ -38,13 +38,12 @@ def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False):
         base_instruction = (
             "你现在是皋陶学校数学特级教师李鹏燕。任务：批改。要求：\n"
             "1. 第一行必须写‘【判定】：正确/错误。正确答案是：[字母]’。\n"
-            "2. 严禁使用任何 LaTeX 语法（如 $、^、sqrt、/）。\n"
-            "3. 严禁使用枯燥代数式。所有几何关系必须用汉字描述（如：‘边长的平方’、‘根号2’、‘30度角’）。\n"
-            "4. 一定要用比较温柔的语气，以李鹏燕老师的口吻给出回答\n"
-            "5. 启发式点拨，不要给步骤，只给‘题眼’引导学生思考。"
+            "2. 严禁使用任何 LaTeX 语法。\n"
+            "3. 严禁使用枯燥代数式。所有几何关系必须用汉字描述。\n"
+            "4. 启发式点拨，不要给步骤，只给‘题眼’引导学生思考。"
         )
     else:
-        base_instruction = "你现在是特级教师李鹏燕。任务：命题。要求：只给题干和选项。严禁 LaTeX，纯文字描述，允许阿拉伯数字。"
+        base_instruction = "你现在是特级教师李鹏燕。任务：命题。要求：只给题干和选项。严禁 LaTeX，纯文字描述。"
     try:
         response = client.chat.completions.create(
             model="deepseek-chat",
@@ -77,17 +76,35 @@ with st.sidebar:
         active_kps = [col for col in s_data.index if col in st.session_state.topic_map.keys()]
         
         if active_kps:
+            # 1. 个人雷达图
             scores = [float(s_data[kp]) if pd.notnull(s_data[kp]) else 60.0 for kp in active_kps]
             radar_df = pd.DataFrame({"维度": active_kps, "得分": scores})
             fig = px.line_polar(radar_df, r='得分', theta='维度', line_close=True, range_r=[0, 100])
             fig.update_traces(fill='toself', fillcolor='rgba(30, 136, 229, 0.4)', line_color='#1E88E5')
             st.plotly_chart(fig, use_container_width=True)
             recommended_kp = active_kps[scores.index(min(scores))]
+            
+            # --- 🌟 核心修改：全员热力图放在侧边栏 ---
+            st.write("---")
+            st.subheader("📊 全员能力概览")
+            heat_df = df.set_index("student_name")[active_kps].copy()
+            fig_heat = px.imshow(
+                heat_df,
+                text_auto=True,
+                aspect="auto",
+                color_continuous_scale="RdYlGn",
+                labels=dict(color="能力")
+            )
+            # 优化侧边栏布局：减小高度，隐藏颜色条以腾出空间
+            fig_heat.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), coloraxis_showscale=False)
+            st.plotly_chart(fig_heat, use_container_width=True)
+            
         else:
             recommended_kp = "全科"; scores = [0]
         
         st.divider()
         with st.expander("🛠️ 系统档案与维护"):
+            st.subheader("学生管理")
             new_name = st.text_input("新增姓名：")
             if st.button("➕ 确认入驻"):
                 if new_name:
@@ -109,26 +126,7 @@ with st.sidebar:
 if "curr_student" in locals() and curr_student:
     st.title(f"🛡️ 智汇皋陶：数字化自适应演化看板")
 
-    # --- 🌟 核心新增：全员能力演化热力图 ---
-    with st.expander("📊 全班能力演化全景热力矩阵", expanded=True):
-        try:
-            # 提取全员数据并绘图
-            heat_df = df.set_index("student_name")[active_kps].copy()
-            fig_heat = px.imshow(
-                heat_df,
-                text_auto=True, 
-                aspect="auto",
-                color_continuous_scale="RdYlGn", # 红黄绿配色
-                labels=dict(x="知识板块", y="学生姓名", color="能力值"),
-                title="班级能力分布实时监测图"
-            )
-            fig_heat.update_layout(height=400, margin=dict(l=10, r=10, t=50, b=10))
-            st.plotly_chart(fig_heat, use_container_width=True)
-        except:
-            st.info("数据载入中...")
-
-    st.divider()
-
+    # 核心指标卡
     avg_score = sum(scores)/len(scores) if scores else 0
     c1, c2, c3 = st.columns(3)
     with c1: st.markdown(f'<div class="metric-card"><h3>👤 聚焦学生</h3><h2>{curr_student}</h2></div>', unsafe_allow_html=True)
@@ -141,6 +139,7 @@ if "curr_student" in locals() and curr_student:
         l_col, r_col = st.columns([3, 2])
         with l_col:
             st.markdown('<div class="main-card">', unsafe_allow_html=True)
+            st.subheader("🛠️ 智能选题中心")
             m_cat = st.selectbox("选择知识大类：", list(st.session_state.topic_map.keys()))
             s_cat = st.selectbox("锁定精细主题：", st.session_state.topic_map[m_cat])
 
@@ -177,17 +176,15 @@ if "curr_student" in locals() and curr_student:
 
 with tab2:
     logs = supabase.table("study_logs").select("*").eq("student_name", curr_student).order("created_at", desc=True).execute().data if "curr_student" in locals() else []
-    if logs:
-        for log in logs:
-            with st.expander(f"📅 {log['created_at'][:16]} | {log['knowledge_point']}"):
-                st.write(f"题：{log['question']}"); st.info(f"批：{log['ai_review']}")
-    else: st.info("暂无成长足迹")
+    for log in logs:
+        with st.expander(f"📅 {log['created_at'][:16]} | {log['knowledge_point']}"):
+            st.write(f"题：{log['question']}"); st.info(f"批：{log['ai_review']}")
 
 with tab3:
     if st.button("🔍 开启全量数据审计与深度诊断"):
         with st.spinner("审计中..."):
             if logs:
                 history = "\n".join([f"考点:{l['knowledge_point']} | 判定:{'对' if l['score_impact']>0 else '错'}" for l in logs[:10]])
-                report = gao_tao_ai_engine("诊断专家", f"记录：\n{history}\n请写全汉字启发分析。严禁LaTeX。", deepseek_key)
+                report = gao_tao_ai_engine("诊断专家", f"记录：\n{history}\n请写汉字点拨式诊断分析。严禁LaTeX。", deepseek_key)
                 st.markdown(f'<div class="report-card"><h2 style="text-align:center; color:#1E88E5;">皋陶数苑：{curr_student} 诊断报告</h2><hr>{report}<br><br><p style="text-align:right;"><b>主诊教师：李鹏燕</b></p></div>', unsafe_allow_html=True)
                 st.balloons()
