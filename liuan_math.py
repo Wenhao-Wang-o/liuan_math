@@ -39,6 +39,7 @@ def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False, is_json=False
     if not api_key: return "⚠️ 请在侧边栏输入 API Key"
     client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     
+    # 动态支持 JSON 返回格式
     response_format = {"type": "json_object"} if is_json else None
     
     if is_review:
@@ -63,7 +64,7 @@ def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False, is_json=False
         return response.choices[0].message.content
     except: return "{}" if is_json else "AI老师正在整理思路..."
 
-# --- 🌟 Word 图文识别逻辑模块 ---
+# --- 🌟 新增：Word 图文识别逻辑模块 ---
 def upload_img_to_storage(img_data):
     """提取图片二进制流并上传到 Supabase Storage"""
     file_name = f"math_{uuid.uuid4().hex[:8]}.png"
@@ -79,7 +80,7 @@ def process_word_auto_import(file, api_key):
         text_content = []
         found_image_urls = []
 
-        # 1. 物理扫描图片并上传
+        # 1. 物理扫描图片并上传 (保持不变)
         for rel in doc.part.rels.values():
             if "image" in rel.target_ref:
                 img_url = upload_img_to_storage(rel.target_part.blob)
@@ -89,25 +90,35 @@ def process_word_auto_import(file, api_key):
         for p in doc.paragraphs:
             t = p.text.strip()
             if t and "装订线" not in t and "学号" not in t:
-                # 处理全角点，方便识别
+                # 🌟 关键：将全角句号替换为半角，方便 AI 识别
                 t = t.replace("．", ".").replace("（", "(").replace("）", ")")
                 text_content.append(t)
         
         full_raw_text = "\n".join(text_content)
         
-        # 3. AI 识别指令
-        sys_prompt = """你是一个初中数学题库专家。任务：从文本中精准提取“单选题”。
-        识别规则：
-        1. 知识大类必须在：相似三角形、二次函数、圆的性质、锐角三角函数中选。
-        2. 如果题干提到“如图”，请按顺序从图片列表中分配URL给 image_url 字段。
-        3. 输出格式严格返回 JSON：{"questions": [{"knowledge_point":"", "sub_topic":"", "question_text":"", "options":"", "correct_answer":"", "image_url":""}]}
-        4. 转换：严禁 LaTeX，必须转为汉字描述。"""
+        # 3. 升级 AI 识别指令：兼容您文档中的具体格式
+        sys_prompt = """你是一个初中数学题库专家。
+        任务：从文本中精准提取“单选题”。
         
-        user_msg = f"内容：\n{full_raw_text[:3000]}\n\n可用图片URL：\n{found_image_urls}"
+        识别规则：
+        1. 题目通常以数字开头，如 "1. " 或 "2. "。
+        2. 知识大类必须从这四个里选：相似三角形、二次函数、圆的性质、锐角三角函数。
+        3. 如果题干提到“如图”，请按顺序关联提供的图片URL。
+        
+        输出格式：严格返回 JSON，结构如下：
+        {"questions": [{"knowledge_point":"相似三角形", "sub_topic":"性质", "question_text":"题目正文", "options":"A.xx B.xx", "correct_answer":"A", "image_url":""}]}
+        
+        注意：严禁 LaTeX 符号，必须转为汉字（如：8.2乘以10的9次方）。"""
+        
+        # 4. 调用 AI (增加截断保护，防止文档过长)
+        user_msg = f"提取题目内容：\n{full_raw_text[:4000]}\n\n可用图片URL：\n{found_image_urls}"
         res_json = gao_tao_ai_engine(sys_prompt, user_msg, api_key, is_json=True)
         
-        return json.loads(res_json).get("questions", [])
-    except: return []
+        result = json.loads(res_json).get("questions", [])
+        return result
+    except Exception as e:
+        st.error(f"解析过程中出现技术偏差: {str(e)}")
+        return []
 
 def get_question(m_cat, s_cat, api_key):
     """选题逻辑：优先从已导入的含图题库中选取"""
@@ -115,6 +126,7 @@ def get_question(m_cat, s_cat, api_key):
     if res.data:
         q_data = random.choice(res.data)
         st.session_state.manual_correct_ans = q_data['correct_answer']
+        # 🌟 存储解析出的图片URL
         st.session_state.q_image_url = q_data.get('image_url')
         return f"{q_data['question_text']}\n{q_data['options']}", True
     else:
@@ -158,59 +170,46 @@ with st.sidebar:
             recommended_kp = "全科"; scores = [0]
         
         st.divider()
-
-        # --- 🌟 优化后的：Word 全自动导入面板（带强力过程回显） ---
-        # --- 🌟 最终修复版：Word 导入面板 ---
+        # --- 🌟 优化后的：Word 全自动导入面板（带即时回显） ---
         with st.expander("📂 Word一键智能识别入库", expanded=True):
-            st.info("上传 Word 作业，系统将自动拆解并匹配几何图形。")
+            st.info("上传 Word 作业，系统将实时提取文字与几何图形。")
             word_file = st.file_uploader("选择 Word 文件 (.docx)", type=["docx"])
             
             if word_file:
-                # 即时文字预览
-                doc_p = docx.Document(word_file)
-                preview = "\n".join([p.text for p in doc_p.paragraphs if p.text.strip()][:3])
-                st.caption(f"📝 识别到内容开头：\n{preview}...")
+                # --- 第一步：即时回显（让用户知道系统读到了文件） ---
+                doc_preview = docx.Document(word_file)
+                preview_text = "\n".join([p.text for p in doc_preview.paragraphs if p.text.strip()][:5])
+                st.write("📝 **识别内容片段预览：**")
+                st.caption(preview_text + "...")
                 
+                # --- 第二步：正式开始解析 ---
                 if st.button("🚀 开始 AI 深度识别并入库"):
                     if not deepseek_key:
-                        st.error("🔑 请先填入 API Key")
+                        st.error("❌ 报错：请先在上方输入 API Key")
                     else:
-                        with st.status("🔍 正在图文逻辑对齐...", expanded=True) as status:
-                            st.write("📦 正在物理提取几何图形并同步云端...")
-                            # 1. 执行解析
-                            qs = process_word_auto_import(word_file, deepseek_key)
+                        with st.status("🔍 正在执行图文逻辑匹配...", expanded=True) as status:
+                            st.write("📦 正在物理提取几何图形并同步云端存储桶...")
+                            # 执行您的 process_word_auto_import 函数
+                            imported_qs = process_word_auto_import(word_file, deepseek_key)
                             
-                            if qs:
-                                st.write(f"🚀 AI 已识别 {len(qs)} 道题目，准备批量入库...")
+                            if imported_qs:
+                                st.write(f"✅ AI 成功识别 {len(imported_qs)} 道题目，准备批量入库...")
                                 try:
-                                    # 🌟 核心改进：批量插入，只需 1 秒即可完成
-                                    # 过滤掉无效数据
-                                    valid_qs = [q for q in qs if len(q.get("question_text","")) > 5]
-                                    
+                                    # 批量插入
+                                    valid_qs = [q for q in imported_qs if len(q.get("question_text","")) > 5]
                                     if valid_qs:
-                                        # 一次性把列表塞进数据库
                                         supabase.table("manual_question_bank").insert(valid_qs).execute()
-                                        
-                                        status.update(label="🎉 导入全流程已完成！", state="complete")
+                                        status.update(label="🎉 入库流程全部完成！", state="complete", expanded=False)
                                         st.success(f"成功导入 {len(valid_qs)} 道精品题！")
-                                        
-                                        # 2. 成果展示区
-                                        st.write("### 📥 本次入库结果明细")
-                                        res_df = pd.DataFrame(valid_qs)
-                                        # 仅展示关键列
-                                        display_cols = [c for c in ['knowledge_point', 'correct_answer', 'image_url'] if c in res_df.columns]
-                                        st.dataframe(res_df[display_cols])
-                                        
                                         st.balloons()
-                                        # 💡 注意：此处暂不执行 rerun，让老师看完结果，手动刷新即可
-                                    else:
-                                        st.warning("识别结果为空，请检查文档题号格式。")
+                                        time.sleep(2)
+                                        st.rerun()
                                 except Exception as db_err:
                                     status.update(label="❌ 数据库写入出错", state="error")
                                     st.error(f"写入失败: {str(db_err)}")
                             else:
-                                status.update(label="❌ AI 未能识别题目", state="error")
-                                st.error("AI未能识别题目格式，请确认文档。")
+                                status.update(label="❌ 解析失败", state="error")
+                                st.error("AI 未能在文档中识别到标准格式的题目")
 
         with st.expander("🛠️ 系统维护"):
             new_name = st.text_input("新增姓名：")
@@ -221,6 +220,33 @@ with st.sidebar:
                     supabase.table("student_scores").insert(init_entry).execute(); st.rerun()
             if st.button("❌ 注销当前学生"):
                 supabase.table("student_scores").delete().eq("student_name", curr_student).execute(); st.rerun()
+
+        # --- 🌟 核心新增模块：云端题库全量核验（展示题干+配图+答案） ---
+        with st.expander("📚 云端题库核验中心"):
+            try:
+                verify_res = supabase.table("manual_question_bank").select("*").order("created_at", desc=True).execute()
+                verify_data = verify_res.data
+                if verify_data:
+                    st.write(f"📊 目前库存：{len(verify_data)} 道题")
+                    for b_q in verify_data:
+                        with st.container():
+                            st.markdown(f"**[{b_q.get('knowledge_point')}]**")
+                            st.write(f"**题干：** {b_q.get('question_text')}")
+                            # 渲染图片
+                            if b_q.get('image_url'):
+                                st.image(b_q['image_url'], caption="几何关联图形", width=280)
+                            else:
+                                st.caption("（此题暂无关联图片）")
+                            st.success(f"正确答案：{b_q.get('correct_answer')}")
+                            if st.button("🗑️ 移除此题", key=f"rm_{b_q.get('id')}"):
+                                supabase.table("manual_question_bank").delete().eq("id", b_q.get('id')).execute()
+                                st.rerun()
+                            st.divider()
+                else:
+                    st.info("题库目前空空如也，请先上传文档导入。")
+            except:
+                st.warning("数据同步中，请稍后再试。")
+
     except: st.error(f"📡 数据同步中...")
 
 # --- 5. 主界面看板 ---
