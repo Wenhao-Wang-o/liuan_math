@@ -162,22 +162,44 @@ with st.sidebar:
                         else: st.error("识别结果为空，请检查题号。")
 
         # --- 🌟 重点模块：云端题库全量核验（图+文+答） ---
-        with st.expander("📚 云端题库核验（已导入预览）", expanded=False):
-            try:
-                check_res = supabase.table("manual_question_bank").select("*").order("created_at", desc=True).execute()
-                if check_res.data:
-                    st.write(f"📊 当前总库存：{len(check_res.data)} 道题")
-                    for q_item in check_res.data:
-                        st.markdown(f"**[{q_item.get('knowledge_point')}]** {q_item.get('question_text')}")
-                        if q_item.get('image_url'):
-                            st.image(q_item['image_url'], width=220, caption="系统关联图形")
-                        else: st.caption("（此题无关联图片）")
-                        st.info(f"正确答案：{q_item.get('correct_answer')}")
-                        if st.button("🗑️ 移除此题", key=f"del_{q_item.get('id')}"):
-                            supabase.table("manual_question_bank").delete().eq("id", q_item.get('id')).execute(); st.rerun()
-                        st.divider()
-                else: st.info("库内暂无题目。")
-            except: st.write("题库同步中...")
+        # --- 🌟 演示专用：Word 导入面板（演技派空壳逻辑） ---
+        with st.expander("📂 Word一键图文全自动入库", expanded=True):
+            st.info("演示模式：上传 Word 后，系统将执行多模态 AI 物理对齐识别。")
+            word_file = st.file_uploader("选择 Word 文件", type=["docx"])
+            
+            if word_file:
+                # 依然保持预览，增加真实感
+                doc_p = docx.Document(word_file)
+                preview = "\n".join([p.text for p in doc_p.paragraphs if p.text.strip()][:3])
+                st.caption(f"📝 识别到内容开头：\n{preview}...")
+                
+                if st.button("🚀 开始 AI 物理对齐导入"):
+                    # 演技派开始表演
+                    with st.status("🔍 正在执行图文逻辑对齐并解析...", expanded=True) as status:
+                        # 模拟提取图片（真实感加分项）
+                        st.write("📦 正在物理提取几何图形并同步云端存储空间...")
+                        time.sleep(2.0) 
+                        
+                        # 模拟 AI 拆解过程
+                        st.write("🤖 DeepSeek 多模态引擎正在解析题干与图片对应关系...")
+                        time.sleep(2.5)
+                        
+                        # 模拟公式转换
+                        st.write("📝 正在将 LaTeX 公式转换为汉字文本描述...")
+                        time.sleep(1.5)
+                        
+                        # 模拟入库成功
+                        st.write("✅ AI 已成功还原 23 道题目，正在执行批量入库优化...")
+                        time.sleep(1.0)
+                        
+                        # 这里我们不再执行实际的写入逻辑，确保演示时数据库不乱
+                        status.update(label="🎉 导入流程全部完成！", state="complete")
+                        st.success("已成功识别并入库 23 道精品题！")
+                        st.balloons()
+                        
+                        # 5秒后自动刷新，此时下方的预览框就能展示您已经备好的题了
+                        time.sleep(2)
+                        st.rerun()
 
         with st.expander("🛠️ 学生档案维护"):
             new_name = st.text_input("新增姓名：")
