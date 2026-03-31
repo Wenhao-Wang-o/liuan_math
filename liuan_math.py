@@ -41,18 +41,18 @@ def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False, is_json=False
     response_format = {"type": "json_object"} if is_json else None
     
     if is_review:
-        # 🌟 批改模式：绝对温柔，严禁重复题干
+        # 🌟 批改模式：语气温柔，禁止重复题干
         base_instruction = (
-            "你现在是特级教师李鹏燕。任务：批改学生回答。\n"
+            "你现在是皋陶学校特级教师李鹏燕。任务：批改学生回答。\n"
             "要求：\n"
             "1. 第一行写：‘【判定】：正确/错误。正确答案是：[字母]’。\n"
-            "2. 严禁重复题干内容。语气极其温柔（如：‘亲爱的孩子...’）。\n"
-            "3. 只提供启发式点拨（题眼），不要给完整步骤。严禁 LaTeX。"
+            "2. 严禁重复题干。语气极其温柔（如：‘孩子，李老师发现你已经观察到了...’）。\n"
+            "3. 只提供启发式点拨（题眼），不要给完整步骤。严禁使用 LaTeX。"
         )
     else:
-        # 🌟 命题模式：绝对禁止解析和答案
+        # 🌟 命题模式：严禁给答案和解析
         base_instruction = (
-            "你现在是命题专家李老师。任务：命制单选题。\n"
+            "你现在是命题专家李老师。任务：命制数学单选题。\n"
             "严格要求：输出内容必须仅包含‘题干’和‘选项’。绝对严禁给出正确答案，绝对严禁给出任何解析。严禁 LaTeX。"
         )
 
@@ -61,7 +61,7 @@ def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False, is_json=False
             model="deepseek-chat",
             messages=[{"role": "system", "content": base_instruction + sys_msg},{"role": "user", "content": user_msg}],
             temperature=0.3,
-            max_tokens=8192 if is_json else 2000, # 🌟 核心修复：JSON 模式必须支持超长返回
+            max_tokens=8192 if is_json else 2000, 
             response_format=response_format
         )
         return response.choices[0].message.content
@@ -76,7 +76,7 @@ def upload_img(data):
     except: return None
 
 def process_full_paper(file, api_key):
-    """【物理锚点版】实现 100% 图文对齐"""
+    """【物理锚点版】实现 100% 图文位置对齐"""
     try:
         doc = docx.Document(file)
         img_anchors = {} 
@@ -99,12 +99,12 @@ def process_full_paper(file, api_key):
         
         full_raw_text = "\n".join(stream)
         sys_prompt = "将这23道题拆解。关联图片锚点URL，公式转汉字，严格JSON。"
-        # 🌟 修复：使用关键字传参，确保 is_json 准确
-        res_json = gao_tao_ai_engine(sys_prompt, f"整卷还原：\n{full_raw_text[:12000]}", api_key, is_json=True)
+        res_json = gao_tao_ai_engine(sys_prompt, f"还原以下卷子题目：\n\n{full_raw_text[:12000]}", api_key, is_json=True)
         return json.loads(res_json).get("questions", [])
     except: return []
 
 def get_question(m_cat, s_cat, api_key):
+    """优先本地，本地无则AI命题（禁止解析）"""
     res = supabase.table("manual_question_bank").select("*").eq("knowledge_point", m_cat).eq("sub_topic", s_cat).execute()
     if res.data:
         q = random.choice(res.data)
@@ -113,8 +113,8 @@ def get_question(m_cat, s_cat, api_key):
         return f"{q['question_text']}\n{q['options']}", True
     else:
         st.session_state.q_image_url = None
-        prompt = f"出一道【{s_cat}】考点的单选题。只给题干选项，禁止给答案解析。"
-        return gao_tao_ai_engine("题库专家", prompt, api_key, is_review=False), False
+        prompt = f"出一道【{s_cat}】考点的单选题。只提供题干和选项，严禁解析。"
+        return gao_tao_ai_engine("专家", prompt, api_key, is_review=False), False
 
 # --- 5. 侧边栏：管理中心 ---
 with st.sidebar:
@@ -148,7 +148,22 @@ with st.sidebar:
                         supabase.table("manual_question_bank").insert(qs).execute()
                         status.update(label="🎉 导入完成！", state="complete")
                         st.success(f"已入库 {len(qs)} 道题！"); st.balloons(); time.sleep(2); st.rerun()
-    except: st.error("📡 数据连接中...")
+
+        # 🌟 找回并修复：学生档案维护功能
+        with st.expander("🛠️ 学生档案维护"):
+            new_name = st.text_input("新增姓名：")
+            if st.button("➕ 确认入驻"):
+                if new_name:
+                    init_entry = {"student_name": new_name, **{kp: 60 for kp in st.session_state.topic_map.keys()}}
+                    supabase.table("student_scores").insert(init_entry).execute()
+                    st.success(f"{new_name} 已成功入驻！")
+                    time.sleep(1); st.rerun()
+            if st.button("❌ 注销当前学生"):
+                supabase.table("student_scores").delete().eq("student_name", curr_student).execute()
+                st.warning(f"{curr_student} 档案已注销。")
+                time.sleep(1); st.rerun()
+
+    except: st.error("📡 数据同步中...")
 
 # --- 6. 主界面看板 ---
 if "curr_student" in locals() and curr_student:
@@ -176,11 +191,10 @@ if "curr_student" in locals() and curr_student:
                 st.markdown(f'<div class="question-display">{st.session_state.q_text}</div>', unsafe_allow_html=True)
                 if st.session_state.get("q_image_url"): st.image(st.session_state.q_image_url, use_column_width=True)
                 u_ans = st.text_area("录入你的思考（请输入选项字母）：", key="ans_box")
-                if st.button("🚀 提交并更新图谱"):
-                    with st.spinner("李老师正在分析中..."):
-                        p_msg = f"题：{st.session_state.q_text}\n学生答：{u_ans}\n系统已知正确答案：{st.session_state.get('manual_correct_ans','')}"
-                        # 🌟 修复：参数传递必须严格
-                        review = gao_tao_ai_engine("批改导师", p_msg, deepseek_key, is_review=True)
+                if st.button("🚀 提交反馈"):
+                    with st.spinner("李老师分析中..."):
+                        p_msg = f"题：{st.session_state.q_text}\n答：{u_ans}\n已知正确答案：{st.session_state.get('manual_correct_ans','')}"
+                        review = gao_tao_ai_engine("导师", p_msg, deepseek_key, is_review=True)
                         first_line = review.split('\n')[0]
                         impact = 2 if "正确" in first_line and "错误" not in first_line else -2
                         supabase.table("study_logs").insert({"student_name": curr_student, "knowledge_point": st.session_state.active_s, "question": st.session_state.q_text, "answer_logic": u_ans, "ai_review": review, "score_impact": impact}).execute()
@@ -203,10 +217,9 @@ if "curr_student" in locals() and curr_student:
             with st.spinner("扫描中..."):
                 if logs:
                     history = "\n".join([f"考点:{l['knowledge_point']} | 判定:{'对' if l['score_impact']>0 else '错'}" for l in logs[:10]])
-                    report = gao_tao_ai_engine("诊断专家", f"历史记录：\n{history}\n汉字描述分析，严禁LaTeX。", deepseek_key)
+                    report = gao_tao_ai_engine("诊断专家", f"历史：\n{history}\n汉字描述分析，严禁LaTeX。", deepseek_key)
                     st.markdown(f'<div class="report-card"><h2>{curr_student} 诊断报告</h2><hr>{report}</div>', unsafe_allow_html=True); st.balloons()
 
-    # 🌟 修复：缩进错误修正完成
     with tab4:
         st.subheader("📚 云端全卷题目沉浸式阅览")
         check_res = supabase.table("manual_question_bank").select("*").order("created_at", desc=True).execute()
@@ -215,7 +228,7 @@ if "curr_student" in locals() and curr_student:
             for q_item in check_res.data:
                 with st.container():
                     st.markdown(f"**[{q_item.get('knowledge_point')}]** {q_item.get('question_text')}")
-                    if q_item.get('image_url'): st.image(q_item['image_url'], width=400, caption="系统自动关联的几何图")
+                    if q_item.get('image_url'): st.image(q_item['image_url'], width=400, caption="关联几何图")
                     st.success(f"正确答案：{q_item.get('correct_answer')}")
                     if st.button("🗑️ 移除此题", key=f"del_{q_item.get('id')}"):
                         supabase.table("manual_question_bank").delete().eq("id", q_item.get('id')).execute(); st.rerun()
