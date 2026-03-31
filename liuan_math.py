@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from openai import OpenAI
+import random  # 🌟 新增：用于生成随机因素
 
 # --- 1. 页面初始化 ---
 st.set_page_config(page_title="某某学校-学情分析系统", layout="wide")
@@ -30,13 +31,13 @@ with st.sidebar:
     base_url = st.text_input("🌐 API 代理", value="https://api.deepseek.com")
 
     st.divider()
-    st.subheader("📊 九年级数学学情看板")
+    st.subheader("📊 班级学情看板")
     heat_df = st.session_state.class_data.set_index("姓名")
     fig_heat = px.imshow(heat_df, text_auto=True, color_continuous_scale='RdYlGn', aspect="auto")
     st.plotly_chart(fig_heat, key="heatmap", use_container_width=True)
 
-    st.subheader("👤 学生维度诊断")
-    selected_student = st.selectbox("选择学生：", st.session_state.class_data["姓名"])
+    st.subheader("👤 学生个人画像")
+    selected_student = st.selectbox("选择学生进行诊断：", st.session_state.class_data["姓名"])
     student_row = st.session_state.class_data[st.session_state.class_data["姓名"] == selected_student]
 
     plot_data = pd.DataFrame({"知识点": heat_df.columns, "得分": student_row.iloc[0, 1:].values})
@@ -52,12 +53,11 @@ def ask_ai_teacher(system_prompt, user_input):
         st.error("请先在左侧输入 API Key！")
         return None
 
-    # 🌟 关键修改：增加纯文字约束，明确题型
     identity_prompt = (
         f"你现在是某某学校的数学老师小红。你的对话对象是你的九年级学生。"
         "请记住：你是老师，对方是学生。点评时请称呼对方为'同学'或'孩子'，绝对禁止称呼学生为'老师'。"
-        "要求：必须使用纯文字进行回答和出题，严禁涉及任何需要图形、图像、坐标系或'如图所示'才能理解的内容。"
-        "题目类型必须是纯文字的选择题或填空题。禁止使用LaTeX！分数用(a)/(b)，平方用^2。采用启发式引导。"
+        "要求：必须使用纯文字进行回答和出题，严禁涉及任何需要图形或'如图所示'才能理解的内容。"
+        "禁止使用LaTeX语法！所有分数、平方等数学表达必须转为纯文字（如：x的平方）。采用启发式引导。"
     )
 
     try:
@@ -68,7 +68,7 @@ def ask_ai_teacher(system_prompt, user_input):
                 {"role": "system", "content": identity_prompt + system_prompt},
                 {"role": "user", "content": user_input}
             ],
-            temperature=0.7
+            temperature=1.0  # 🌟 调高随机度，减少题目重复
         )
         return response.choices[0].message.content
     except Exception as e:
@@ -78,7 +78,7 @@ def ask_ai_teacher(system_prompt, user_input):
 
 # --- 4. 主界面 ---
 st.title("🤖 智汇皋陶：AI 个性化测评系统")
-st.markdown(f"#### 欢迎来到 **小红** 老师的数字教室（某某学校-九年级数学）")
+st.markdown(f"#### 欢迎来到 **小红** 老师的数字教室")
 
 tab1, tab2 = st.tabs(["✍️ 互动练习区", "📖 练习记录本"])
 
@@ -88,15 +88,18 @@ with tab1:
         st.subheader(f"📍 针对【{selected_student}】的精准强化")
         st.write(f"当前诊断薄弱项：**{student_weakest}**")
 
-        if st.button("✨ 获取九年级中考专项题目"):
+        if st.button("✨ 获取中考专项挑战题"):
             with st.spinner("小红老师正在为您出题..."):
-                # 🌟 关键修改：明确要求出“纯文字”的选择题或填空题
+                # 🌟 关键改进 1：通过代码强制随机选择题型
+                q_type = random.choice(["带有A/B/C/D选项的单项选择题", "纯文字填空题"])
+                
+                # 🌟 关键改进 2：提示词中加入情境变化指令
                 q_prompt = (
-                    f"请针对知识点【{student_weakest}】出一道九年级中考难度的题目。"
-                    f"题型要求：可以是纯文字的选择题（含A/B/C/D选项）或纯文字的填空题。"
-                    f"硬性要求：题目必须通过文字描述完整，严禁涉及图形，严禁出现'如图'字样。只需给出题目，不要给出答案和解析。"
+                    f"请针对知识点【{student_weakest}】出一道九年级中考难度的【{q_type}】。"
+                    f"要求：1. 严禁涉及图形，严禁出现'如图'字样。2. 数值和题目背景必须新颖，避免出现常见例题。 "
+                    f"3. 如果是选择题，请务必列出A、B、C、D四个选项。4. 只需给出题目，不要给出答案和解析。"
                 )
-                res = ask_ai_teacher("你正在为九年级学生命制纯文字形式的数学练习题。", q_prompt)
+                res = ask_ai_teacher("你正在为九年级学生命制富有变化的数学练习题。", q_prompt)
                 if res:
                     st.session_state.current_q = res
                     st.session_state.eval_result = ""
@@ -108,7 +111,7 @@ with tab1:
 
             if st.button("🚀 提交给老师批改"):
                 with st.spinner("小红老师正在阅读你的答案..."):
-                    e_prompt = f"题目：{st.session_state.current_q}\n学生答案：{ans_input}\n请判断正误，并给出温柔、启发式的点评，要用启发式的回答，不要出现数学语言，不要用公式。"
+                    e_prompt = f"题目：{st.session_state.current_q}\n学生答案：{ans_input}\n请判断正误，并给出温柔、启发式的点评，不要出现数学公式语言。"
                     eval_res = ask_ai_teacher("你正在批改九年级学生的数学作业。", e_prompt)
                     if eval_res:
                         st.session_state.eval_result = eval_res
