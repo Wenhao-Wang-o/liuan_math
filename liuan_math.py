@@ -100,7 +100,7 @@ with tab1:
 
             if st.button("🚀 提交给老师批改"):
                 with st.spinner("李老师正在阅读你的答案..."):
-                    e_prompt = f"题目：{st.session_state.current_q}\n学生答案：{ans_input}\n请判断正误，并给出温柔、启发式的点评。"
+                    e_prompt = f"题目：{st.session_state.current_q}\n学生答案：{ans_input}\n请判断正误，并给出温柔、启发式的点评，要用启发式的回答，不要出现数学语言，不要用公式。"
                     eval_res = ask_ai_teacher("你正在批改九年级学生的数学作业。", e_prompt)
                     if eval_res:
                         st.session_state.eval_result = eval_res
