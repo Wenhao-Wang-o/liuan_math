@@ -35,8 +35,8 @@ with st.sidebar:
     fig_heat = px.imshow(heat_df, text_auto=True, color_continuous_scale='RdYlGn', aspect="auto")
     st.plotly_chart(fig_heat, key="heatmap", use_container_width=True)
 
-    st.subheader("👤 学生个人画像")
-    selected_student = st.selectbox("选择学生进行诊断：", st.session_state.class_data["姓名"])
+    st.subheader("👤 学生维度诊断")
+    selected_student = st.selectbox("选择学生：", st.session_state.class_data["姓名"])
     student_row = st.session_state.class_data[st.session_state.class_data["姓名"] == selected_student]
 
     plot_data = pd.DataFrame({"知识点": heat_df.columns, "得分": student_row.iloc[0, 1:].values})
@@ -78,7 +78,7 @@ def ask_ai_teacher(system_prompt, user_input):
 
 # --- 4. 主界面 ---
 st.title("🤖 智汇皋陶：AI 个性化测评系统")
-st.markdown(f"#### 欢迎来到 **小红** 老师的数字教室")
+st.markdown(f"#### 欢迎来到 **小红** 老师的数字教室（某某学校-九年级数学）")
 
 tab1, tab2 = st.tabs(["✍️ 互动练习区", "📖 练习记录本"])
 
