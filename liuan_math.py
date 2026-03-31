@@ -77,6 +77,7 @@ def upload_img(data):
     except: return None
 
 def process_full_paper(file, api_key):
+    """【物理锚点对齐版】强制使用英文键名以匹配数据库"""
     try:
         doc = docx.Document(file)
         img_anchors = {} 
@@ -92,16 +93,27 @@ def process_full_paper(file, api_key):
             imgs = p._element.xpath('.//a:blip/@r:embed')
             if imgs:
                 for rId in imgs:
-                    if rId in img_anchors: txt += f" [此处附图锚点:{img_anchors[rId]}]"
+                    if rId in img_anchors: txt += f" [物理配图锚点:{img_anchors[rId]}]"
             if txt:
                 txt = txt.replace("．", ".").replace("（", "(").replace("）", ")")
                 stream.append(txt)
         
         full_raw_text = "\n".join(stream)
-        sys_prompt = "将这23道题拆解。关联图片锚点URL，公式转汉字，严格JSON。"
-        res_json = gao_tao_ai_engine(sys_prompt, f"整卷还原：\n{full_raw_text[:12000]}", api_key, is_json=True)
+        
+        # 🌟 关键修复：强制 AI 使用与数据库列名完全一致的英文键
+        sys_prompt = """你是一个数学题库自动化专家。任务：将文本拆解为23道题目。
+        要求：
+        1. 严格使用以下 JSON 格式，键名必须为英文：
+        {"questions": [{"knowledge_point": "相似三角形", "question_text": "题干内容", "options": "A.xx B.xx", "correct_answer": "答案字母", "image_url": "图片URL"}]}
+        2. 必须识别1.到23.的所有题目。
+        3. 图片关联：将锚点URL填入 image_url 字段。
+        4. 公式重构：严禁 LaTeX，根号/平方转为汉字。"""
+        
+        res_json = gao_tao_ai_engine(sys_prompt, f"还原整卷23题：\n{full_raw_text[:12000]}", api_key, is_json=True)
         return json.loads(res_json).get("questions", [])
-    except: return []
+    except Exception as e:
+        st.error(f"解析过程偏差: {e}")
+        return []
 
 def get_question(m_cat, s_cat, api_key):
     res = supabase.table("manual_question_bank").select("*").eq("knowledge_point", m_cat).eq("sub_topic", s_cat).execute()
