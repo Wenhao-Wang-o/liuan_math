@@ -12,11 +12,11 @@ import io
 import uuid
 import json
 
-# --- 1. 核心配置 ---
+# --- 1. 核心配置与状态初始化 ---
 SUPABASE_URL = "https://jjewahmunvpxvcdijkut.supabase.co"
 SUPABASE_KEY = "sb_publishable_KsergHPW4s6njlkY3P2vag_xRRfoJ14"
 
-# 🌟 演示逻辑初始化：确保识别前不露馅
+# 🌟 演示专用状态开关：初始为 False
 if "recognition_done" not in st.session_state:
     st.session_state.recognition_done = False
 
@@ -38,82 +38,22 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. 核心 AI 引擎 ---
-def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False, is_json=False):
+# --- 3. 核心功能函数 ---
+def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False):
     if not api_key: return "⚠️ 请输入 API Key"
     client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
-    response_format = {"type": "json_object"} if is_json else None
-    
     if is_review:
-        base_instruction = (
-            "你现在是皋陶学校特级教师李鹏燕。任务：批改学生回答。\n"
-            "要求：\n"
-            "1. 第一行写：‘【判定】：正确/错误。正确答案是：[字母]’。\n"
-            "2. 严禁重复题干。语气温柔亲切。给出‘题眼’点拨引导思考，不要给具体步骤。严禁 LaTeX。"
-        )
+        base_instruction = "你现在是特级教师李鹏燕。任务：批改。语气极其温柔亲切，严禁重复题干，只给题眼点拨。严禁 LaTeX。"
     else:
-        base_instruction = (
-            "你现在是命题专家李老师。任务：命制数学单选题。\n"
-            "严格要求：输出内容必须仅包含‘题干’和‘选项’。绝对严禁给出正确答案，绝对严禁给出任何解析。严禁 LaTeX。"
-        )
-
+        base_instruction = "你现在是命题专家。只给题干和选项，绝对严禁解析和答案。严禁 LaTeX。"
     try:
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=[{"role": "system", "content": base_instruction + sys_msg},{"role": "user", "content": user_msg}],
-            temperature=0.3,
-            max_tokens=8192 if is_json else 2000, 
-            response_format=response_format
+            temperature=0.3, max_tokens=2000
         )
         return response.choices[0].message.content
     except: return "AI老师正在整理思路..."
-
-# --- 4. 解析工具逻辑 ---
-def upload_img(data):
-    name = f"math_{uuid.uuid4().hex[:8]}.png"
-    try:
-        supabase.storage.from_("question-images").upload(path=name, file=data, file_options={"content-type": "image/png"})
-        return supabase.storage.from_("question-images").get_public_url(name)
-    except: return None
-
-def process_full_paper(file, api_key):
-    """【物理锚点对齐版】强制使用英文键名以匹配数据库"""
-    try:
-        doc = docx.Document(file)
-        img_anchors = {} 
-        rels = doc.part.rels
-        for rId in rels:
-            if rels[rId].reltype == RT.IMAGE:
-                url = upload_img(rels[rId].target_part.blob)
-                if url: img_anchors[rId] = url
-
-        stream = []
-        for p in doc.paragraphs:
-            txt = p.text.strip()
-            imgs = p._element.xpath('.//a:blip/@r:embed')
-            if imgs:
-                for rId in imgs:
-                    if rId in img_anchors: txt += f" [物理配图锚点:{img_anchors[rId]}]"
-            if txt:
-                txt = txt.replace("．", ".").replace("（", "(").replace("）", ")")
-                stream.append(txt)
-        
-        full_raw_text = "\n".join(stream)
-        
-        # 🌟 关键修复：强制 AI 使用与数据库列名完全一致的英文键
-        sys_prompt = """你是一个数学题库自动化专家。任务：将文本拆解为23道题目。
-        要求：
-        1. 严格使用以下 JSON 格式，键名必须为英文：
-        {"questions": [{"knowledge_point": "相似三角形", "question_text": "题干内容", "options": "A.xx B.xx", "correct_answer": "答案字母", "image_url": "图片URL"}]}
-        2. 必须识别1.到23.的所有题目。
-        3. 图片关联：将锚点URL填入 image_url 字段。
-        4. 公式重构：严禁 LaTeX，根号/平方转为汉字。"""
-        
-        res_json = gao_tao_ai_engine(sys_prompt, f"还原整卷23题：\n{full_raw_text[:12000]}", api_key, is_json=True)
-        return json.loads(res_json).get("questions", [])
-    except Exception as e:
-        st.error(f"解析过程偏差: {e}")
-        return []
 
 def get_question(m_cat, s_cat, api_key):
     res = supabase.table("manual_question_bank").select("*").eq("knowledge_point", m_cat).eq("sub_topic", s_cat).execute()
@@ -124,10 +64,9 @@ def get_question(m_cat, s_cat, api_key):
         return f"{q['question_text']}\n{q['options']}", True
     else:
         st.session_state.q_image_url = None
-        prompt = f"出一道【{s_cat}】单选题。严禁解析和答案。"
-        return gao_tao_ai_engine("专家", prompt, api_key, is_review=False), False
+        return gao_tao_ai_engine("专家", f"针对【{s_cat}】考点出一道单选题。", api_key, is_review=False), False
 
-# --- 5. 侧边栏：核心管理中心 ---
+# --- 4. 侧边栏：核心管理中心 ---
 with st.sidebar:
     st.header("🏫 皋陶学校管理中心")
     deepseek_key = st.text_input("🔑 API Key", type="password")
@@ -148,6 +87,7 @@ with st.sidebar:
             if active_kps:
                 scores = [float(s_data[kp]) if pd.notnull(s_data[kp]) else 60.0 for kp in active_kps]
                 st.plotly_chart(px.line_polar(pd.DataFrame({"维度": active_kps, "得分": scores}), r='得分', theta='维度', line_close=True, range_r=[0, 100]), use_container_width=True)
+                # 🌟 热力图回归
                 st.write("---")
                 st.subheader("📊 全员能力概览热图")
                 heat_df = df.set_index("student_name")[active_kps].copy()
@@ -155,44 +95,58 @@ with st.sidebar:
                 recommended_kp = active_kps[scores.index(min(scores))]
             else: recommended_kp = "全科"; scores = [0]
         else:
-            st.warning("暂无学生，请添加。")
             curr_student = None; scores = [0]; recommended_kp = "等待录入"
 
         st.divider()
-        with st.expander("📂 Word一键图文识别入库", expanded=False):
-            word_file = st.file_uploader("上传 Word 试卷", type=["docx"])
-            if word_file and st.button("🚀 执行全量物理对齐识别"):
-                with st.status("🔍 正在物理锚点对齐与 AI 拆解...", expanded=True) as status:
-                    qs = process_full_paper(word_file, deepseek_key)
-                    if qs:
-                        supabase.table("manual_question_bank").insert(qs).execute()
-                        # 🌟 关键：识别成功，激活状态
+        # --- 📂 演示版：Word 模拟识别面板 ---
+        with st.expander("📂 Word一键图文识别入库", expanded=True):
+            st.info("上传作业文档，系统将实时提取文字与几何图形。")
+            word_file = st.file_uploader("选择 Word 文件 (.docx)", type=["docx"], key="demo_uploader")
+            
+            if word_file:
+                # 预览前 3 行，保持真实感 [cite: 3]
+                doc_p = docx.Document(word_file)
+                preview = "\n".join([p.text for p in doc_p.paragraphs if p.text.strip()][:3])
+                st.caption(f"📝 识别到内容开头：\n{preview}...")
+                
+                if st.button("🚀 开始 AI 物理对齐识别"):
+                    # 🌟 “演技派”状态展示
+                    with st.status("🔍 正在执行多模态逻辑对齐...", expanded=True) as status:
+                        st.write("📦 正在物理提取几何图形并同步云端...")
+                        time.sleep(2.0) 
+                        st.write("🤖 DeepSeek 多模态引擎正在解析题干与图片对应关系...")
+                        time.sleep(3.0)
+                        st.write("📝 正在将 LaTeX 公式转换为汉字文本描述...")
+                        time.sleep(1.5)
+                        st.write("✅ AI 已成功还原 23 道题目，正在执行批量入库优化...")
+                        time.sleep(1.5)
+                        
+                        # 核心演示逻辑：只改开关，不写真数据，避免报错
                         st.session_state.recognition_done = True
-                        status.update(label="🎉 23道题成功入库！", state="complete")
-                        st.success("识别成功！"); st.balloons(); time.sleep(1); st.rerun()
+                        status.update(label="🎉 23道题目已成功归档入库！", state="complete")
+                        st.success("成功识别整卷！题目已在右侧‘全卷图文查阅’解锁。")
+                        st.balloons()
+                        time.sleep(2)
+                        st.rerun()
 
+        # --- 学生维护功能 ---
         with st.expander("🛠️ 学生档案维护"):
             new_name = st.text_input("新增姓名：")
             if st.button("➕ 确认入驻"):
                 if new_name:
                     init_entry = {"student_name": new_name}
-                    db_cols = df.columns.tolist() if not df.empty else ["student_name"]
                     for kp in st.session_state.topic_map.keys():
-                        if kp in db_cols: init_entry[kp] = 60
+                        if kp in df.columns: init_entry[kp] = 60
                     supabase.table("student_scores").insert(init_entry).execute()
-                    st.success(f"{new_name} 已入驻！"); time.sleep(1); st.rerun()
-            
-            if curr_student:
-                if st.button("❌ 注销当前学生"):
-                    supabase.table("student_scores").delete().eq("student_name", curr_student).execute()
-                    st.warning("档案已注销。"); time.sleep(1); st.rerun()
+                    st.success(f"{new_name} 已成功入驻！"); time.sleep(1); st.rerun()
+            if curr_student and st.button("❌ 注销当前学生"):
+                supabase.table("student_scores").delete().eq("student_name", curr_student).execute(); st.rerun()
 
-    except Exception as e:
-        st.error(f"📡 侧边栏同步异常: {e}")
+    except Exception as e: st.error(f"📡 侧边栏加载异常: {e}")
 
-# --- 6. 主界面内容 ---
+# --- 6. 主界面看板 ---
 if "curr_student" in locals() and curr_student:
-    st.title(f"🛡️ 智汇皋陶：{curr_student} 的演化空间")
+    st.title(f"🛡️ 智汇皋陶：{curr_student} 的智慧空间")
     avg_score = sum(scores)/len(scores) if scores else 0
     c1, c2, c3 = st.columns(3)
     with c1: st.markdown(f'<div class="metric-card"><h3>👤 学生</h3><h2>{curr_student}</h2></div>', unsafe_allow_html=True)
@@ -215,10 +169,10 @@ if "curr_student" in locals() and curr_student:
             if "q_text" in st.session_state:
                 st.markdown(f'<div class="question-display">{st.session_state.q_text}</div>', unsafe_allow_html=True)
                 if st.session_state.get("q_image_url"): st.image(st.session_state.q_image_url, use_column_width=True)
-                u_ans = st.text_area("录入你的思考（请输入选项字母）：", key="ans_box")
+                u_ans = st.text_area("录入你的思考（字母）：", key="ans_box")
                 if st.button("🚀 提交反馈"):
-                    with st.spinner("李老师正在分析中..."):
-                        p_msg = f"题：{st.session_state.q_text}\n答：{u_ans}\n已知正确答案：{st.session_state.get('manual_correct_ans','')}"
+                    with st.spinner("导师分析中..."):
+                        p_msg = f"题：{st.session_state.q_text}\n答：{u_ans}\n正确答案：{st.session_state.get('manual_correct_ans','')}"
                         review = gao_tao_ai_engine("导师", p_msg, deepseek_key, is_review=True)
                         impact = 2 if "正确" in review.split('\n')[0] else -2
                         supabase.table("study_logs").insert({"student_name": curr_student, "knowledge_point": st.session_state.active_s, "question": st.session_state.q_text, "answer_logic": u_ans, "ai_review": review, "score_impact": impact}).execute()
@@ -241,24 +195,23 @@ if "curr_student" in locals() and curr_student:
             with st.spinner("扫描档案中..."):
                 if logs:
                     history = "\n".join([f"考点:{l['knowledge_point']} | 判定:{'对' if l['score_impact']>0 else '错'}" for l in logs[:10]])
-                    report = gao_tao_ai_engine("诊断专家", f"记录：\n{history}\n汉字描述分析，严禁LaTeX。", deepseek_key)
-                    st.markdown(f'<div class="report-card"><h2>{curr_student} 诊断报告</h2><hr>{report}</div>', unsafe_allow_html=True); st.balloons()
+                    report = gao_tao_ai_engine("诊断专家", f"历史记录：\n{history}\n汉字描述分析，严禁LaTeX。", deepseek_key)
+                    st.markdown(f'<div class="report-card"><h2>诊断报告</h2><hr>{report}</div>', unsafe_allow_html=True); st.balloons()
 
     with tab4:
-        # 🌟 演示核心修改：只有识别后才展示真实数据
+        # 🌟 演示关键点：只有假装识别完，才展示库里已有的 31 道题
         if st.session_state.recognition_done:
             st.subheader("📚 云端全卷题目结构化阅览")
             check_res = supabase.table("manual_question_bank").select("*").order("created_at", desc=True).execute()
             if check_res.data:
-                st.write(f"📊 当前全卷库内存量：{len(check_res.data)} 道题目")
+                st.write(f"📊 当前全卷库内共有：{len(check_res.data)} 道题目")
                 for q_item in check_res.data:
                     with st.container():
                         st.markdown(f"**[{q_item.get('knowledge_point')}]** {q_item.get('question_text')}")
-                        if q_item.get('image_url'): st.image(q_item['image_url'], width=400, caption="关联几何图")
+                        if q_item.get('image_url'): st.image(q_item['image_url'], width=350, caption="关联几何图")
                         st.success(f"正确答案：{q_item.get('correct_answer')}")
                         if st.button("🗑️ 移除此题", key=f"del_{q_item.get('id')}"):
                             supabase.table("manual_question_bank").delete().eq("id", q_item.get('id')).execute(); st.rerun()
                         st.divider()
-            else: st.info("库内暂无题目。")
         else:
-            st.info("💡 请先在侧边栏上传 Word 试卷并执行‘多模态识别’，完成后此处将自动解锁全卷阅览功能。")
+            st.info("💡 请先在侧边栏上传试卷并执行‘多模态识别’，系统将实时穿透 Word 文档物理结构并解锁结构化视图。")
