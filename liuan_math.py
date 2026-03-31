@@ -4,7 +4,7 @@ import plotly.express as px
 from openai import OpenAI
 
 # --- 1. 页面初始化 ---
-st.set_page_config(page_title="六安市皋陶学校-学情分析系统", layout="wide")
+st.set_page_config(page_title="某某学校-学情分析系统", layout="wide")
 
 # 初始化数据：九年级数学模拟分值
 if 'class_data' not in st.session_state:
@@ -23,7 +23,7 @@ if 'chat_history' not in st.session_state: st.session_state.chat_history = []
 # --- 2. 侧边栏：教师管理后台 ---
 with st.sidebar:
     st.title("🏫 教学管理后台")
-    st.info("👤 **授课教师：李鹏燕**\n\n🏫 **学校：六安市皋陶学校**\n\n📚 **班级：九年级数学**")
+    st.info("👤 **授课教师：小红**\n\n🏫 **学校：某某学校**\n\n📚 **班级：九年级数学**")
 
     st.divider()
     api_key = st.text_input("🔑 API Key (DeepSeek)", type="password")
@@ -53,7 +53,7 @@ def ask_ai_teacher(system_prompt, user_input):
         return None
 
     identity_prompt = (
-        f"你现在是六安市皋陶学校的数学老师李鹏燕。你的学生是九年级的学生。"
+        f"你现在是六安市皋陶学校的数学老师小红。你的学生是九年级的学生。"
         "在对话和解析中要体现出亲切、专业的教师形象。不要使用公式进行回答，要用启发式的回答。"
     )
 
@@ -75,7 +75,7 @@ def ask_ai_teacher(system_prompt, user_input):
 
 # --- 4. 主界面 ---
 st.title("🤖 智汇皋陶：AI 个性化测评系统")
-st.markdown(f"#### 欢迎来到 **李鹏燕** 老师的数字教室")
+st.markdown(f"#### 欢迎来到 **小红** 老师的数字教室")
 
 tab1, tab2 = st.tabs(["✍️ 互动练习区", "📖 练习记录本"])
 
@@ -99,7 +99,7 @@ with tab1:
             ans_input = st.text_area("在下方输入你的解题思路或答案：", placeholder="李老师，我是这样想的...")
 
             if st.button("🚀 提交给老师批改"):
-                with st.spinner("李老师正在阅读你的答案..."):
+                with st.spinner("小红老师正在阅读你的答案..."):
                     e_prompt = f"题目：{st.session_state.current_q}\n学生答案：{ans_input}\n请判断正误，并给出温柔、启发式的点评，要用启发式的回答，不要出现数学语言，不要用公式。"
                     eval_res = ask_ai_teacher("你正在批改九年级学生的数学作业。", e_prompt)
                     if eval_res:
@@ -112,7 +112,7 @@ with tab1:
         if st.session_state.eval_result:
             st.success(st.session_state.eval_result)
         else:
-            st.write("提交答案后，这里会显示李老师的点评。")
+            st.write("提交答案后，这里会显示小红老师的点评。")
 
 with tab2:
     if not st.session_state.chat_history:
@@ -121,13 +121,13 @@ with tab2:
         for i, item in enumerate(reversed(st.session_state.chat_history)):
             with st.expander(f"练习记录 {len(st.session_state.chat_history) - i}"):
                 st.write(item['q'])
-                st.markdown(f"**李老师点评：**\n{item['a']}")
+                st.markdown(f"**小红老师点评：**\n{item['a']}")
 
 # --- 5. 页脚 ---
 st.divider()
 st.markdown(f"""
 <div style="text-align: center; color: gray; font-size: 14px;">
-    © 2024 六安市皋陶学校 | 九年级数学组 | 负责人：李鹏燕<br>
+    © 2025 某某学校 | 九年级数学组 | 负责人：小红老师<br>
     助力九年级中考数学精准复习
 </div>
 """, unsafe_allow_html=True)
