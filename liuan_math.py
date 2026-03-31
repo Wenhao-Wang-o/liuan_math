@@ -35,20 +35,35 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 3. 核心 AI 引擎 ---
-def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_json=False):
-    if not api_key: return "⚠️ 请输入 API Key"
+def gao_tao_ai_engine(sys_msg, user_msg, api_key, is_review=False, is_json=False):
+    if not api_key: return "⚠️ 请在侧边栏输入 API Key"
     client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     response_format = {"type": "json_object"} if is_json else None
+    
+    if is_review:
+        # 🌟 批改模式：强化启发式、温柔语气、去公式化
+        base_instruction = (
+            "你现在是皋陶学校数学特级教师李鹏燕。任务：批改学生回答。\n"
+            "要求：\n"
+            "1. 第一行格式：‘【判定】：正确/错误。正确答案是：[字母]’。\n"
+            "2. 严禁使用 LaTeX（如 $、^、sqrt、/），所有数学关系用汉字描述（如：边长的平方、根号2）。\n"
+            "3. 语气要极其温柔、亲切（如：‘孩子，别灰心’、‘李老师发现你已经观察到了...’）。\n"
+            "4. 执行启发式点拨：不给具体解题步骤，只给出‘题眼’引导学生思考。"
+        )
+    else:
+        # 🌟 命题模式：死命令不准给解析
+        base_instruction = "你现在是特级教师李鹏燕。任务：出一道初中数学单选题。要求：只提供题干和选项，严禁提供答案和任何解析。严禁 LaTeX。"
+        
     try:
         response = client.chat.completions.create(
             model="deepseek-chat",
-            messages=[{"role": "system", "content": sys_msg},{"role": "user", "content": user_msg}],
-            temperature=0.3,
-            max_tokens=8192,  # 🌟 必须开启超长返回，确保 23 道题不被截断
+            messages=[{"role": "system", "content": base_instruction + sys_msg},{"role": "user", "content": user_msg}],
+            temperature=0.3 if is_review else 0.7, 
+            max_tokens=2000,
             response_format=response_format
         )
         return response.choices[0].message.content
-    except: return "{}" if is_json else "AI老师正在整理思路..."
+    except: return "AI老师正在整理思路..."
 
 # --- 🌟 核心：Word 图文“物理原位”对齐逻辑 ---
 def upload_img(data):
@@ -100,6 +115,7 @@ def process_full_paper(file, api_key):
     except: return []
 
 def get_question(m_cat, s_cat, api_key):
+    """选题逻辑：优先本地。AI命题时严禁给答案"""
     res = supabase.table("manual_question_bank").select("*").eq("knowledge_point", m_cat).eq("sub_topic", s_cat).execute()
     if res.data:
         q = random.choice(res.data)
@@ -108,7 +124,10 @@ def get_question(m_cat, s_cat, api_key):
         return f"{q['question_text']}\n{q['options']}", True
     else:
         st.session_state.q_image_url = None
-        return gao_tao_ai_engine("专家", f"针对【{s_cat}】考点出一道单选题。", api_key), False
+        # 🌟 此处提示词再次强调：禁止解析
+        q_prompt = f"针对【{s_cat}】考点出一道单选题。只给题干和选项，绝对不要给出解析和答案。"
+        ai_q = gao_tao_ai_engine("专家", q_prompt, api_key, is_review=False)
+        return ai_q, False
 
 # --- 4. 侧边栏：管理中心 ---
 with st.sidebar:
