@@ -47,14 +47,18 @@ with st.sidebar:
 
 
 # --- 3. AI 调用逻辑 ---
+# --- 修改后的第 3 部分 ---
 def ask_ai_teacher(system_prompt, user_input):
     if not api_key:
         st.error("请先在左侧输入 API Key！")
         return None
 
+    # 🌟 关键修改：明确对话对象，禁止错误称呼
     identity_prompt = (
-        f"你现在是六安市皋陶学校的数学老师小红。你的学生是九年级的学生。"
-        "在对话和解析中要体现出亲切、专业的教师形象。不要使用公式进行回答，要用启发式的回答。"
+        f"你现在是某某学校的数学老师小红。你的对话对象是你的九年级学生。"
+        "请记住：你是老师，对方是学生。点评时请称呼对方为'同学'或'孩子'，"
+        "绝对禁止称呼学生为'老师'或'小红老师'。"
+        "在解析中体现亲切、专业。禁止使用LaTeX！分数用(a)/(b)，平方用^2。采用启发式引导。"
     )
 
     try:
@@ -86,7 +90,7 @@ with tab1:
         st.write(f"当前诊断薄弱项：**{student_weakest}**")
 
         if st.button("✨ 获取中考专项挑战题"):
-            with st.spinner("李老师正在为您出题..."):
+            with st.spinner("小红老师正在为您出题..."):
                 q_prompt = f"请针对知识点【{student_weakest}】出一道九年级中考难度的单选题。只需给出题目和选项，不要给出答案和解析。"
                 res = ask_ai_teacher("你正在为九年级学生命制数学练习题。", q_prompt)
                 if res:
@@ -96,7 +100,7 @@ with tab1:
         if st.session_state.current_q:
             st.markdown("---")
             st.info(st.session_state.current_q)
-            ans_input = st.text_area("在下方输入你的解题思路或答案：", placeholder="李老师，我是这样想的...")
+            ans_input = st.text_area("在下方输入你的解题思路或答案：", placeholder="小红老师，我是这样想的...")
 
             if st.button("🚀 提交给老师批改"):
                 with st.spinner("小红老师正在阅读你的答案..."):
