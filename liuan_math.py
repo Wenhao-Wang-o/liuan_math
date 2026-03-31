@@ -30,7 +30,7 @@ with st.sidebar:
     base_url = st.text_input("🌐 API 代理", value="https://api.deepseek.com")
 
     st.divider()
-    st.subheader("📊 班级学情看板")
+    st.subheader("📊 九年级数学学情看板")
     heat_df = st.session_state.class_data.set_index("姓名")
     fig_heat = px.imshow(heat_df, text_auto=True, color_continuous_scale='RdYlGn', aspect="auto")
     st.plotly_chart(fig_heat, key="heatmap", use_container_width=True)
@@ -88,7 +88,7 @@ with tab1:
         st.subheader(f"📍 针对【{selected_student}】的精准强化")
         st.write(f"当前诊断薄弱项：**{student_weakest}**")
 
-        if st.button("✨ 获取中考专项挑战题"):
+        if st.button("✨ 获取九年级中考专项题目"):
             with st.spinner("小红老师正在为您出题..."):
                 # 🌟 关键修改：明确要求出“纯文字”的选择题或填空题
                 q_prompt = (
