@@ -31,13 +31,13 @@ with st.sidebar:
     base_url = st.text_input("🌐 API 代理", value="https://api.deepseek.com")
 
     st.divider()
-    st.subheader("📊 班级学情看板")
+    st.subheader("📊 九年级数学学情看板")
     heat_df = st.session_state.class_data.set_index("姓名")
     fig_heat = px.imshow(heat_df, text_auto=True, color_continuous_scale='RdYlGn', aspect="auto")
     st.plotly_chart(fig_heat, key="heatmap", use_container_width=True)
 
-    st.subheader("👤 学生个人画像")
-    selected_student = st.selectbox("选择学生进行诊断：", st.session_state.class_data["姓名"])
+    st.subheader("👤 学生维度诊断")
+    selected_student = st.selectbox("选择学生：", st.session_state.class_data["姓名"])
     student_row = st.session_state.class_data[st.session_state.class_data["姓名"] == selected_student]
 
     plot_data = pd.DataFrame({"知识点": heat_df.columns, "得分": student_row.iloc[0, 1:].values})
@@ -78,7 +78,7 @@ def ask_ai_teacher(system_prompt, user_input):
 
 # --- 4. 主界面 ---
 st.title("🤖 智汇皋陶：AI 个性化测评系统")
-st.markdown(f"#### 欢迎来到 **小红** 老师的数字教室")
+st.markdown(f"#### 欢迎来到 **小红** 老师的数字教室（某某学校-九年级数学）")
 
 tab1, tab2 = st.tabs(["✍️ 互动练习区", "📖 练习记录本"])
 
@@ -88,7 +88,7 @@ with tab1:
         st.subheader(f"📍 针对【{selected_student}】的精准强化")
         st.write(f"当前诊断薄弱项：**{student_weakest}**")
 
-        if st.button("✨ 获取中考专项挑战题"):
+        if st.button("✨ 获取九年级中考专项题目"):
             with st.spinner("小红老师正在为您出题..."):
                 # 🌟 关键改进 1：通过代码强制随机选择题型
                 q_type = random.choice(["带有A/B/C/D选项的单项选择题", "纯文字填空题"])
