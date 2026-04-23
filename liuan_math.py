@@ -20,6 +20,7 @@ if 'current_q' not in st.session_state: st.session_state.current_q = ""
 if 'eval_result' not in st.session_state: st.session_state.eval_result = ""
 if 'chat_history' not in st.session_state: st.session_state.chat_history = []
 if 'last_is_wrong' not in st.session_state: st.session_state.last_is_wrong = False 
+if 'correct_ans' not in st.session_state: st.session_state.correct_ans = "" # 🌟 新增：存储标准答案
 
 # --- 2. 侧边栏 ---
 with st.sidebar:
@@ -28,11 +29,9 @@ with st.sidebar:
     st.divider()
     api_key = st.text_input("🔑 API Key (DeepSeek)", type="password")
     base_url = st.text_input("🌐 API 代理", value="https://api.deepseek.com")
-    
     st.divider()
     st.subheader("🎯 强制出题要求")
     forced_req = st.text_area("输入特定指令：", placeholder="例如：请出一道关于相似三角形的选择题，要求四个选项涉及对应边成比例或对应角相等", key="forced_instruction")
-
     st.divider()
     st.subheader("📊 九年级数学学情看板")
     heat_df = st.session_state.class_data.set_index("姓名")
@@ -49,22 +48,17 @@ def ask_ai_teacher(system_prompt, user_input, is_grading=False):
     if not api_key:
         st.error("请先在左侧输入 API Key！")
         return None
-
+    # 🌟 强化指令：死命令禁止 LaTeX，确保数学表达纯文字化
     identity_prompt = (
-        f"你现在是数学老师小红。对话对象是九年级学生。称呼学生为'同学'或'孩子'。"
-        "语气必须极其温柔、细腻、耐心、充满鼓励。点评要极简（50字内），禁LaTeX。"
-        "🌟特别注意：在批改时，第一行必须先明确输出【正确】或【错误】。"
+        f"你现在是数学老师小红。点评极其简练（50字内）。"
+        "严禁使用 LaTeX 格式（禁止出现 \\frac, \\triangle, ^ 等反斜杠符号）。"
+        "分数请写成 a/b，三角形写成‘三角形ABC’。批改时第一行必须输出【正确】或【错误】。"
     )
-
     try:
         client = OpenAI(api_key=api_key, base_url=base_url)
         response = client.chat.completions.create(
             model="deepseek-chat",
-            messages=[
-                {"role": "system", "content": identity_prompt + system_prompt},
-                {"role": "user", "content": user_input}
-            ],
-            # 🌟 核心改进：如果是批改作业，强制降低随机度，保证准确性
+            messages=[{"role": "system", "content": identity_prompt + system_prompt},{"role": "user", "content": user_input}],
             temperature=0.3 if is_grading else 1.0
         )
         return response.choices[0].message.content
@@ -80,30 +74,28 @@ with tab1:
     col_l, col_r = st.columns([3, 2])
     with col_l:
         st.subheader(f"📍 针对【{selected_student}】的精准强化")
-        st.write(f"当前诊断薄弱项：**{student_weakest}**")
-        
         btn_label = "🔄 获取相似题巩固" if st.session_state.last_is_wrong else "✨ 获取九年级中考专项题目"
         
         if st.button(btn_label):
             with st.spinner("小红老师正在为您准备题目..."):
                 q_type = random.choice(["带有A/B/C/D选项的选择题", "纯文字填空题"])
+                # 🌟 核心修改：要求 AI 在输出末尾带上答案
+                base_prompt = f"针对【{student_weakest}】出一道九年级中考难度的【{q_type}】。绝对严禁 LaTeX。必须在题目最后另起一行标注‘标准答案：[字母或数值]’。"
                 
                 if st.session_state.last_is_wrong:
-                    q_prompt = (
-                        f"孩子，刚才关于【{student_weakest}】的题没做对没关系，老师相信你再试一次肯定行！\n"
-                        f"请针对这道错题：{st.session_state.current_q}，出一道逻辑高度相似的新题。要求：\n"
-                        f"1. 绝对严禁复述、分析或解释上一道题的内容。\n"
-                        f"2. 必须以‘下面给你一道巩固题，仔细想想哦：’作为开头，随后直接给新题内容。"
-                    )
+                    q_prompt = f"孩子刚才答错了题目：{st.session_state.current_q}。请再出一道逻辑相近的新题。{base_prompt} 开头必须是‘下面给你一道巩固题，仔细想想哦：’"
                 else:
-                    q_prompt = f"针对【{student_weakest}】出一道九年级中考难度的【{q_type}】。只需给出题目，不要给出答案和解析。"
+                    q_prompt = base_prompt
                 
                 if forced_req:
-                    q_prompt = f"【强制要求：{forced_req}】\n" + q_prompt
+                    q_prompt = f"【硬性要求：{forced_req}】\n" + q_prompt
 
-                res = ask_ai_teacher("你正在命制数学练习题。", q_prompt, is_grading=False)
-                if res:
-                    st.session_state.current_q = res
+                res = ask_ai_teacher("命题专家", q_prompt, is_grading=False)
+                if res and "标准答案：" in res:
+                    # 🌟 核心修改：截断答案，不让学生看见，但存入后台
+                    main_q, _, ans_part = res.partition("标准答案：")
+                    st.session_state.current_q = main_q.strip()
+                    st.session_state.correct_ans = ans_part.strip().replace("[","").replace("]","")
                     st.session_state.eval_result = ""
                     st.rerun()
 
@@ -114,21 +106,17 @@ with tab1:
             
             if st.button("🚀 提交给老师批改"):
                 with st.spinner("小红老师正在阅读你的答案..."):
-                    # 🌟 核心改进：在提示词里强制 AI 先进行自我运算比对
+                    # 🌟 核心修改：批改时直接告诉 AI 刚才锁定的正确答案是什么
                     e_prompt = (
-                        f"【批改任务】\n题目：{st.session_state.current_q}\n学生答案：{ans_input}\n"
-                        f"请先自己计算出该题的正确答案，然后核对学生输入的选项是否正确。"
-                        f"要求：第一行输出【正确】或【错误】，然后给予温柔鼓励。"
+                        f"【标准参考答案】：{st.session_state.correct_ans}\n"
+                        f"【学生提交内容】：{ans_input}\n"
+                        f"请严格比对参考答案进行批改。第一行输出【正确】或【错误】，然后给温柔点拨。"
                     )
-                    # 传入 is_grading=True 激活 0.3 的低温模式
-                    eval_res = ask_ai_teacher("你正在严谨地批改数学作业。", e_prompt, is_grading=True)
+                    eval_res = ask_ai_teacher("批改老师", e_prompt, is_grading=True)
                     if eval_res:
                         st.session_state.eval_result = eval_res
                         st.session_state.chat_history.append({"q": st.session_state.current_q, "a": eval_res})
-                        if "错误" in eval_res or "【错误】" in eval_res:
-                            st.session_state.last_is_wrong = True
-                        else:
-                            st.session_state.last_is_wrong = False
+                        st.session_state.last_is_wrong = "错误" in eval_res or "【错误】" in eval_res
                         st.rerun()
                         
     with col_r:
