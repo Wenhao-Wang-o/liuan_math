@@ -61,7 +61,7 @@ def ask_ai_teacher(system_prompt, user_input, is_grading=False):
         st.error("请先在左侧输入 API Key！")
         return None
     identity_prompt = (
-        f"你现在是数学老师小红。点评极其简练（50字内）。"
+        f"你现在是数学老师小红。点评极其简练（150字内）。"
         "严禁使用 LaTeX 格式（禁止出现 \\frac, \\triangle, ^ 等）。分数用 a/b，三角形写‘三角形ABC’。"
         "批改时第一行必须输出【正确】或【错误】。"
     )
@@ -76,7 +76,7 @@ def ask_ai_teacher(system_prompt, user_input, is_grading=False):
     except: return None
 
 # --- 4. 主界面 ---
-st.title("🤖 智汇皋陶：AI 个性化测评 system")
+st.title("🤖 智汇皋陶：AI 个性化测评系统")
 
 tab1, tab2 = st.tabs(["✍️ 互动练习区", "📖 练习记录本"])
 
