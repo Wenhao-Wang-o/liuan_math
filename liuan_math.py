@@ -7,7 +7,7 @@ import random
 # --- 1. 页面初始化 ---
 st.set_page_config(page_title="某某学校-学情分析系统", layout="wide")
 
-# 初始化数据：九年级数学模拟分值
+# 初始化数据
 if 'class_data' not in st.session_state:
     st.session_state.class_data = pd.DataFrame({
         "姓名": ["张三", "李四", "王五", "赵六"],
@@ -17,6 +17,17 @@ if 'class_data' not in st.session_state:
         "锐角三角函数": [85, 75, 80, 70],
         "反比例函数": [75, 55, 88, 50]
     })
+
+# 🌟 建立知识点细分地图 (根据您的需求定制)
+if 'sub_topic_map' not in st.session_state:
+    st.session_state.sub_topic_map = {
+        "二次函数": ["1.二次函数概念", "2.二次函数的图象和性质", "3.二次函数与一元二次方程", "4.二次函数的应用", "5.综合与实践：获取最大利润"],
+        "圆的性质": ["1.旋转", "2.圆的基本性质", "3.圆周角", "4.直线与圆的位置关系", "5.三角形的内切圆", "6.正多边形与圆", "7.弧长与扇形面积", "8.综合复习"],
+        "相似三角形": ["1.比例线段", "2.平行线分线段成比例", "3.相似三角形判定", "4.相似三角形性质", "5.位似"],
+        "锐角三角函数": ["1.正弦/余弦/正切", "2.特殊角的三角函数值", "3.解直角三角形及其应用"],
+        "反比例函数": ["1.反比例函数概念", "2.反比例函数的图象和性质", "3.反比例函数的应用"]
+    }
+
 if 'current_q' not in st.session_state: st.session_state.current_q = ""
 if 'eval_result' not in st.session_state: st.session_state.eval_result = ""
 if 'chat_history' not in st.session_state: st.session_state.chat_history = []
@@ -34,10 +45,9 @@ with st.sidebar:
     st.subheader("🎯 强制出题要求")
     forced_req = st.text_area("输入特定指令：", placeholder="例如：请出一道关于相似三角形的选择题，要求四个选项涉及对应边成比例或对应角相等", key="forced_instruction")
     st.divider()
-    st.subheader("📊 九年级数学学情看板")
+    st.subheader("📊 学情看板")
     heat_df = st.session_state.class_data.set_index("姓名")
     st.plotly_chart(px.imshow(heat_df, text_auto=True, color_continuous_scale='RdYlGn', aspect="auto"), key="heatmap", use_container_width=True)
-    st.subheader("👤 学生维度诊断")
     selected_student = st.selectbox("选择学生：", st.session_state.class_data["姓名"])
     student_row = st.session_state.class_data[st.session_state.class_data["姓名"] == selected_student]
     plot_data = pd.DataFrame({"知识点": heat_df.columns, "得分": student_row.iloc[0, 1:].values})
@@ -51,8 +61,8 @@ def ask_ai_teacher(system_prompt, user_input, is_grading=False):
         return None
     identity_prompt = (
         f"你现在是数学老师小红。点评极其简练（50字内）。"
-        "严禁使用 LaTeX 格式（禁止出现 \\frac, \\triangle, ^ 等反斜杠符号）。"
-        "分数请写成 a/b，三角形写成‘三角形ABC’。批改时第一行必须输出【正确】或【错误】。"
+        "严禁使用 LaTeX 格式（禁止出现 \\frac, \\triangle, ^ 等）。分数用 a/b，三角形写‘三角形ABC’。"
+        "批改时第一行必须输出【正确】或【错误】。"
     )
     try:
         client = OpenAI(api_key=api_key, base_url=base_url)
@@ -66,7 +76,6 @@ def ask_ai_teacher(system_prompt, user_input, is_grading=False):
 
 # --- 4. 主界面 ---
 st.title("🤖 智汇皋陶：AI 个性化测评 system")
-st.markdown(f"#### 欢迎来到 **小红** 老师的数字教室")
 
 tab1, tab2 = st.tabs(["✍️ 互动练习区", "📖 练习记录本"])
 
@@ -75,25 +84,29 @@ with tab1:
     with col_l:
         st.subheader(f"📍 针对【{selected_student}】的精准强化")
         
-        # 🌟 核心新增功能：手动选择题目的知识点类型
-        knowledge_points = list(st.session_state.class_data.columns[1:])
-        topic_choice = st.selectbox("📚 请选择练习考点：", ["🎯 智能推荐 (针对弱项)", *knowledge_points])
+        # 🌟 修改点：双层联动选择考点
+        main_kps = list(st.session_state.class_data.columns[1:])
+        col_m, col_s = st.columns(2)
+        with col_m:
+            main_topic = st.selectbox("📚 选择章节：", ["🎯 智能推荐", *main_kps])
         
-        # 确定最终出题的知识点
-        if topic_choice == "🎯 智能推荐 (针对弱项)":
-            target_topic = student_weakest
-        else:
-            target_topic = topic_choice
-            
-        st.write(f"当前选定考点：**{target_topic}**")
+        with col_s:
+            if main_topic == "🎯 智能推荐":
+                sub_topic = "弱项强化"
+                target_topic_str = student_weakest
+            else:
+                sub_topic = st.selectbox("🔍 细分考点：", st.session_state.sub_topic_map.get(main_topic, ["综合练习"]))
+                target_topic_str = f"{main_topic}下的{sub_topic}"
+
+        st.write(f"当前训练点：**{target_topic_str}**")
 
         btn_label = "🔄 获取相似题巩固" if st.session_state.last_is_wrong else "✨ 获取专项练习题目"
         
         if st.button(btn_label):
             with st.spinner("小红老师正在为您准备题目..."):
-                q_type = random.choice(["带有A/B/C/D选项的选择题", "纯文字填空题"])
-                # 要求 AI 在输出末尾带上答案
-                base_prompt = f"针对知识点【{target_topic}】出一道九年级中考难度的【{q_type}】。绝对严禁 LaTeX。必须在题目最后另起一行标注‘标准答案：[字母或数值]’。"
+                q_type = random.choice(["选择题", "填空题"])
+                # 🌟 将精细化考点植入 Prompt
+                base_prompt = f"针对【{target_topic_str}】出一道九年级中考难度的【{q_type}】。绝对严禁 LaTeX。必须在最后标注‘标准答案：[字母或数值]’。"
                 
                 if st.session_state.last_is_wrong:
                     q_prompt = f"孩子刚才答错了题目：{st.session_state.current_q}。请再出一道逻辑相近的新题。{base_prompt} 开头必须是‘下面给你一道巩固题，仔细想想哦：’"
@@ -115,14 +128,10 @@ with tab1:
             st.markdown("---")
             st.info(st.session_state.current_q)
             ans_input = st.text_area("输入你的思考：", placeholder="小红老师，我是这样想的...")
-            
             if st.button("🚀 提交给老师批改"):
-                with st.spinner("小红老师正在阅读你的答案..."):
-                    e_prompt = (
-                        f"【标准参考答案】：{st.session_state.correct_ans}\n"
-                        f"【学生提交内容】：{ans_input}\n"
-                        f"请严格比对参考答案进行批改。第一行输出【正确】或【错误】，然后给温柔点拨。"
-                    )
+                with st.spinner("小红老师批改中..."):
+                    e_prompt = (f"【标准答案】：{st.session_state.correct_ans}\n【学生答案】：{ans_input}\n"
+                                f"判断正误，第一行输出【正确】或【错误】，然后给温柔点拨。")
                     eval_res = ask_ai_teacher("批改老师", e_prompt, is_grading=True)
                     if eval_res:
                         st.session_state.eval_result = eval_res
