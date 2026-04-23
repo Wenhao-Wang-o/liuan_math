@@ -75,7 +75,7 @@ def ask_ai_teacher(system_prompt, user_input, is_grading=False):
     except: return None
 
 # --- 4. 主界面 ---
-st.title("🤖 智汇皋陶：AI 个性化测评 system")
+st.title("🤖 智汇皋陶：AI 个性化测评系统")
 
 tab1, tab2 = st.tabs(["✍️ 互动练习区", "📖 练习记录本"])
 
