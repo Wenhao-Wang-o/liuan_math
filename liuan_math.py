@@ -110,7 +110,7 @@ with tab1:
                 sub_topic = st.selectbox("🔍 细分考点：", st.session_state.sub_topic_map.get(main_topic, ["综合复习"]))
                 target_topic_str = f"{main_topic}-{sub_topic}"
 
-        q_type_options = ["🎲 随机题型", "📝 单项选择题", "🖊️ 填空题", "📖 简答题"]
+        q_type_options = ["🎲 随机题型", "📝 单项选择题", "🖊️ 填空题", "📖 解答题"]
         selected_q_type = st.selectbox("💡 选择题目类型：", q_type_options)
 
         btn_label = "🔄 获取相似题巩固" if st.session_state.last_is_wrong else "✨ 获取专项练习题目"
@@ -118,7 +118,7 @@ with tab1:
         if st.button(btn_label):
             with st.spinner("小红老师出题中..."):
                 st.session_state.eval_result = ""; st.session_state.follow_up_resp = ""
-                actual_type = random.choice(["选择题", "填空题", "简答题"]) if "随机" in selected_q_type else selected_q_type.split(" ")[1]
+                actual_type = random.choice(["选择题", "填空题", "解答题"]) if "随机" in selected_q_type else selected_q_type.split(" ")[1]
                 base_prompt = f"针对【{target_topic_str}】出一道{actual_type}。严禁 LaTeX。最后另起一行标注‘标准答案：[答案]’。"
                 q_prompt = f"孩子，再试一次新题吧：{base_prompt}" if st.session_state.last_is_wrong else base_prompt
                 if forced_req: q_prompt = f"【指令：{forced_req}】\n" + q_prompt
