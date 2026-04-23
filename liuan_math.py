@@ -114,7 +114,7 @@ with tab1:
                 target_topic_str = f"{main_topic}-{sub_topic}"
 
         # 题型选择
-        q_type_options = ["🎲 随机题型", "📝 单项选择题", "🖊️ 填空题", "📖 简答题"]
+        q_type_options = ["🎲 随机题型", "📝 单项选择题", "🖊️ 填空题", "📖 解答题"]
         selected_q_type = st.selectbox("💡 选择题目类型：", q_type_options)
 
         btn_label = "🔄 获取相似题巩固" if st.session_state.last_is_wrong else "✨ 获取专项练习题目"
@@ -125,7 +125,7 @@ with tab1:
                 
                 # 确定逻辑题型
                 if selected_q_type == "🎲 随机题型":
-                    actual_type = random.choice(["选择题", "填空题", "简答题"])
+                    actual_type = random.choice(["选择题", "填空题", "解答题"])
                 else:
                     actual_type = selected_q_type.split(" ")[1]
 
