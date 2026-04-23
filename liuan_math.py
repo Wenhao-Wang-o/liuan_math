@@ -18,7 +18,7 @@ if 'class_data' not in st.session_state:
         "反比例函数": [75, 55, 88, 50]
     })
 
-# 🌟 建立知识点细分地图 (根据您的需求定制)
+# 🌟 建立知识点细分地图
 if 'sub_topic_map' not in st.session_state:
     st.session_state.sub_topic_map = {
         "二次函数": ["1.二次函数概念", "2.二次函数的图象和性质", "3.二次函数与一元二次方程", "4.二次函数的应用", "5.综合与实践：获取最大利润"],
@@ -33,6 +33,7 @@ if 'eval_result' not in st.session_state: st.session_state.eval_result = ""
 if 'chat_history' not in st.session_state: st.session_state.chat_history = []
 if 'last_is_wrong' not in st.session_state: st.session_state.last_is_wrong = False 
 if 'correct_ans' not in st.session_state: st.session_state.correct_ans = "" 
+if 'follow_up_resp' not in st.session_state: st.session_state.follow_up_resp = "" # 🌟 新增：存储追问回答
 
 # --- 2. 侧边栏 ---
 with st.sidebar:
@@ -75,7 +76,7 @@ def ask_ai_teacher(system_prompt, user_input, is_grading=False):
     except: return None
 
 # --- 4. 主界面 ---
-st.title("🤖 智汇皋陶：AI 个性化测评系统")
+st.title("🤖 智汇皋陶：AI 个性化测评 system")
 
 tab1, tab2 = st.tabs(["✍️ 互动练习区", "📖 练习记录本"])
 
@@ -83,13 +84,10 @@ with tab1:
     col_l, col_r = st.columns([3, 2])
     with col_l:
         st.subheader(f"📍 针对【{selected_student}】的精准强化")
-        
-        # 🌟 修改点：双层联动选择考点
         main_kps = list(st.session_state.class_data.columns[1:])
         col_m, col_s = st.columns(2)
         with col_m:
             main_topic = st.selectbox("📚 选择章节：", ["🎯 智能推荐", *main_kps])
-        
         with col_s:
             if main_topic == "🎯 智能推荐":
                 sub_topic = "弱项强化"
@@ -105,7 +103,6 @@ with tab1:
         if st.button(btn_label):
             with st.spinner("小红老师正在为您准备题目..."):
                 q_type = random.choice(["选择题", "填空题"])
-                # 🌟 将精细化考点植入 Prompt
                 base_prompt = f"针对【{target_topic_str}】出一道九年级中考难度的【{q_type}】。绝对严禁 LaTeX。必须在最后标注‘标准答案：[字母或数值]’。"
                 
                 if st.session_state.last_is_wrong:
@@ -122,6 +119,7 @@ with tab1:
                     st.session_state.current_q = main_q.strip()
                     st.session_state.correct_ans = ans_part.strip().replace("[","").replace("]","")
                     st.session_state.eval_result = ""
+                    st.session_state.follow_up_resp = "" # 换题时清空追问
                     st.rerun()
 
         if st.session_state.current_q:
@@ -143,6 +141,20 @@ with tab1:
         st.subheader("💡 老师的点拨")
         if st.session_state.eval_result:
             st.success(st.session_state.eval_result)
+            
+            # 🌟 新增：答错时的进一步追问功能
+            if st.session_state.last_is_wrong:
+                st.divider()
+                st.write("💬 **孩子，还有哪里没听懂？可以直接问老师：**")
+                u_question = st.text_input("输入你的疑问：", key="follow_up_input")
+                if st.button("🙋 确认追问"):
+                    with st.spinner("小红老师正在为你解答..."):
+                        f_prompt = f"题目：{st.session_state.current_q}\n学生不明白的地方：{u_question}\n请耐心温柔地用纯文字解答，不要超过100字。"
+                        resp = ask_ai_teacher("耐心解答的老师", f_prompt, is_grading=True)
+                        st.session_state.follow_up_resp = resp
+                
+                if st.session_state.follow_up_resp:
+                    st.info(f"**老师说：** {st.session_state.follow_up_resp}")
 
 with tab2:
     for i, item in enumerate(reversed(st.session_state.chat_history)):
