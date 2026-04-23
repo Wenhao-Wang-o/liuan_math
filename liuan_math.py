@@ -7,7 +7,6 @@ import random
 # --- 1. 页面初始化 ---
 st.set_page_config(page_title="某某学校-学情分析系统", layout="wide")
 
-# 初始化原始学情数据
 if 'class_data' not in st.session_state:
     st.session_state.class_data = pd.DataFrame({
         "姓名": ["张三", "李四", "王五", "赵六"],
@@ -18,7 +17,6 @@ if 'class_data' not in st.session_state:
         "反比例函数": [75, 55, 88, 50]
     })
 
-# 建立精细化知识点地图
 if 'sub_topic_map' not in st.session_state:
     st.session_state.sub_topic_map = {
         "二次函数": ["1.二次函数概念", "2.二次函数的图象和性质", "3.二次函数与一元二次方程", "4.二次函数的应用", "5.综合：最大利润问题"],
@@ -28,7 +26,6 @@ if 'sub_topic_map' not in st.session_state:
         "反比例函数": ["1.反比例概念", "2.图象性质", "3.反比例应用"]
     }
 
-# 状态变量初始化
 if 'current_q' not in st.session_state: st.session_state.current_q = ""
 if 'eval_result' not in st.session_state: st.session_state.eval_result = ""
 if 'chat_history' not in st.session_state: st.session_state.chat_history = []
@@ -62,23 +59,27 @@ with st.sidebar:
     st.divider()
     forced_req = st.text_area("🎯 强制出题要求", placeholder="例如：选项涉及对应边成比例", key="forced_instruction")
 
-# --- 3. AI 逻辑：小红老师人设锁定 ---
-def ask_ai_teacher(system_prompt, user_input, is_grading=False):
+# --- 3. AI 调用逻辑：增加“追问模式”区分 ---
+def ask_ai_teacher(system_prompt, user_input, mode="question"):
     if not api_key:
         st.error("请输入 API Key！")
         return None
     
-    # 🌟 这里是您要求的温柔语气核心指令
-    if is_grading:
+    # 根据不同模式分发指令
+    if mode == "grading": # 批改模式
         final_system_msg = (
-            "你现在是数学老师小红。你的学生是九年级孩子。语气必须极其温柔、细腻、充满鼓励。"
-            "哪怕学生做错了，也要先肯定他的尝试。点评极其简练（50字内），绝对严禁使用 LaTeX 格式。"
-            "第一行必须明确输出【正确】或【错误】。"
+            "你现在是数学老师小红。语气极其温柔、充满鼓励。点评50字内。严禁使用 LaTeX 格式。"
+            "🌟重要要求：第一行必须明确输出【正确】或【错误】。"
         )
-    else:
+    elif mode == "answer": # 追问解答模式
         final_system_msg = (
-            "你现在是中考命题专家小红老师。语气亲切。只输出题目和选项。"
-            "绝对严禁输出解析、评语、或【正确/错误】字样。绝对严禁 LaTeX 格式。"
+            "你现在是数学老师小红。学生对之前的错题有疑问，请你耐心讲解。\n"
+            "语气极其温柔细腻。严禁使用 LaTeX。字数100字内。\n"
+            "🌟硬性指令：绝对禁止输出【正确】或【错误】字样，直接讲解思路。"
+        )
+    else: # 出题模式
+        final_system_msg = (
+            "你现在是命题专家小红老师。只输出题目和选项。绝对严禁输出解析、评语或判题。严禁 LaTeX。"
         )
 
     try:
@@ -86,7 +87,7 @@ def ask_ai_teacher(system_prompt, user_input, is_grading=False):
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=[{"role": "system", "content": final_system_msg + system_prompt},{"role": "user", "content": user_input}],
-            temperature=0.3 if is_grading else 0.8
+            temperature=0.3 if mode != "question" else 0.8
         )
         return response.choices[0].message.content
     except: return None
@@ -100,21 +101,16 @@ with tab1:
     col_l, col_r = st.columns([3, 2])
     with col_l:
         st.subheader(f"📍 针对【{selected_student}】的精准强化")
-        
-        # 双层考点选择
         main_kps = list(st.session_state.class_data.columns[1:])
         c1, c2 = st.columns(2)
-        with c1:
-            main_topic = st.selectbox("📚 选择章节：", ["🎯 智能推荐", *main_kps])
+        with c1: main_topic = st.selectbox("📚 选择章节：", ["🎯 智能推荐", *main_kps])
         with c2:
-            if main_topic == "🎯 智能推荐":
-                target_topic_str = student_weakest
+            if main_topic == "🎯 智能推荐": target_topic_str = student_weakest
             else:
                 sub_topic = st.selectbox("🔍 细分考点：", st.session_state.sub_topic_map.get(main_topic, ["综合复习"]))
                 target_topic_str = f"{main_topic}-{sub_topic}"
 
-        # 题型选择
-        q_type_options = ["🎲 随机题型", "📝 单项选择题", "🖊️ 填空题", "📖 解答题"]
+        q_type_options = ["🎲 随机题型", "📝 单项选择题", "🖊️ 填空题", "📖 简答题"]
         selected_q_type = st.selectbox("💡 选择题目类型：", q_type_options)
 
         btn_label = "🔄 获取相似题巩固" if st.session_state.last_is_wrong else "✨ 获取专项练习题目"
@@ -122,24 +118,12 @@ with tab1:
         if st.button(btn_label):
             with st.spinner("小红老师出题中..."):
                 st.session_state.eval_result = ""; st.session_state.follow_up_resp = ""
-                
-                # 确定逻辑题型
-                if selected_q_type == "🎲 随机题型":
-                    actual_type = random.choice(["选择题", "填空题", "解答题"])
-                else:
-                    actual_type = selected_q_type.split(" ")[1]
+                actual_type = random.choice(["选择题", "填空题", "简答题"]) if "随机" in selected_q_type else selected_q_type.split(" ")[1]
+                base_prompt = f"针对【{target_topic_str}】出一道{actual_type}。严禁 LaTeX。最后另起一行标注‘标准答案：[答案]’。"
+                q_prompt = f"孩子，再试一次新题吧：{base_prompt}" if st.session_state.last_is_wrong else base_prompt
+                if forced_req: q_prompt = f"【指令：{forced_req}】\n" + q_prompt
 
-                base_prompt = f"针对【{target_topic_str}】出一道{actual_type}。严禁 LaTeX。必须在最后另起一行标注‘标准答案：[答案]’。"
-                
-                if st.session_state.last_is_wrong:
-                    q_prompt = f"孩子，刚才那道题没做对没关系。老师再出一道逻辑相近的：{base_prompt}"
-                else:
-                    q_prompt = base_prompt
-                
-                if forced_req:
-                    q_prompt = f"【指令：{forced_req}】\n" + q_prompt
-
-                res = ask_ai_teacher("考点："+target_topic_str, q_prompt, is_grading=False)
+                res = ask_ai_teacher("出题任务", q_prompt, mode="question")
                 if res and "标准答案：" in res:
                     main_q, _, ans_part = res.partition("标准答案：")
                     st.session_state.current_q = main_q.strip()
@@ -152,9 +136,8 @@ with tab1:
             ans_input = st.text_area("输入你的思考：", placeholder="小红老师，我是这样想的...")
             if st.button("🚀 提交给老师批改"):
                 with st.spinner("小红老师批改中..."):
-                    e_prompt = (f"题目内容：{st.session_state.current_q}\n标准答案：{st.session_state.correct_ans}\n学生答案：{ans_input}\n"
-                                f"请温柔判断。第一行写【正确】或【错误】。")
-                    eval_res = ask_ai_teacher("批改任务", e_prompt, is_grading=True)
+                    e_prompt = f"题目：{st.session_state.current_q}\n标准答案：{st.session_state.correct_ans}\n学生答案：{ans_input}"
+                    eval_res = ask_ai_teacher("批改任务", e_prompt, mode="grading")
                     if eval_res:
                         st.session_state.eval_result = eval_res
                         st.session_state.chat_history.append({"q": st.session_state.current_q, "a": eval_res})
@@ -169,9 +152,10 @@ with tab1:
                 st.divider()
                 u_question = st.text_input("💬 孩子，还有哪里没听懂？", key="follow_up_input")
                 if st.button("🙋 确认追问"):
-                    with st.spinner("解答中..."):
-                        f_prompt = f"题目：{st.session_state.current_q}\n疑问：{u_question}\n请极其耐心温柔地解答。"
-                        st.session_state.follow_up_resp = ask_ai_teacher("追问解答", f_prompt, is_grading=True)
+                    with st.spinner("小红老师解答中..."):
+                        f_prompt = f"题目：{st.session_state.current_q}\n疑问：{u_question}"
+                        # 🌟 这里改为 mode="answer"，彻底解决带判断标签的问题
+                        st.session_state.follow_up_resp = ask_ai_teacher("追问解答", f_prompt, mode="answer")
                 if st.session_state.follow_up_resp:
                     st.info(f"**老师说：** {st.session_state.follow_up_resp}")
 
