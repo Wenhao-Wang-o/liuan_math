@@ -7,6 +7,7 @@ import random
 # --- 1. 页面初始化 ---
 st.set_page_config(page_title="某某学校-学情分析系统", layout="wide")
 
+# 初始化数据
 if 'class_data' not in st.session_state:
     st.session_state.class_data = pd.DataFrame({
         "姓名": ["张三", "李四", "王五", "赵六"],
@@ -17,6 +18,7 @@ if 'class_data' not in st.session_state:
         "反比例函数": [75, 55, 88, 50]
     })
 
+# 知识点细分地图
 if 'sub_topic_map' not in st.session_state:
     st.session_state.sub_topic_map = {
         "二次函数": ["1.二次函数概念", "2.二次函数的图象和性质", "3.二次函数与一元二次方程", "4.二次函数的应用", "5.综合：最大利润问题"],
@@ -59,28 +61,18 @@ with st.sidebar:
     st.divider()
     forced_req = st.text_area("🎯 强制出题要求", placeholder="例如：选项涉及对应边成比例", key="forced_instruction")
 
-# --- 3. AI 调用逻辑：增加“追问模式”区分 ---
+# --- 3. AI 调用逻辑 ---
 def ask_ai_teacher(system_prompt, user_input, mode="question"):
     if not api_key:
         st.error("请输入 API Key！")
         return None
     
-    # 根据不同模式分发指令
-    if mode == "grading": # 批改模式
-        final_system_msg = (
-            "你现在是数学老师小红。语气极其温柔、充满鼓励。点评50字内。严禁使用 LaTeX 格式。"
-            "🌟重要要求：第一行必须明确输出【正确】或【错误】。"
-        )
-    elif mode == "answer": # 追问解答模式
-        final_system_msg = (
-            "你现在是数学老师小红。学生对之前的错题有疑问，请你耐心讲解。\n"
-            "语气极其温柔细腻。严禁使用 LaTeX。字数100字内。\n"
-            "🌟硬性指令：绝对禁止输出【正确】或【错误】字样，直接讲解思路。"
-        )
-    else: # 出题模式
-        final_system_msg = (
-            "你现在是命题专家小红老师。只输出题目和选项。绝对严禁输出解析、评语或判题。严禁 LaTeX。"
-        )
+    if mode == "grading":
+        final_system_msg = "你现在是数学老师小红。语气极其温柔。点评50字内。严禁LaTeX。第一行必须输出【正确】或【错误】。"
+    elif mode == "answer":
+        final_system_msg = "你现在是数学老师小红。温柔讲解思路，严禁LaTeX。绝对禁止输出【正确】或【错误】。"
+    else:
+        final_system_msg = "你现在是命题专家小红老师。只输出题目和选项。绝对严禁输出解析或判题。严禁LaTeX。"
 
     try:
         client = OpenAI(api_key=api_key, base_url=base_url)
@@ -94,7 +86,6 @@ def ask_ai_teacher(system_prompt, user_input, mode="question"):
 
 # --- 4. 主界面 ---
 st.title("🤖 智汇皋陶：AI 个性化测评系统")
-
 tab1, tab2 = st.tabs(["✍️ 互动练习区", "📖 练习记录本"])
 
 with tab1:
@@ -116,14 +107,14 @@ with tab1:
         btn_label = "🔄 获取相似题巩固" if st.session_state.last_is_wrong else "✨ 获取专项练习题目"
         
         if st.button(btn_label):
-            with st.spinner("小红老师出题中..."):
+            with st.spinner("出题中..."):
                 st.session_state.eval_result = ""; st.session_state.follow_up_resp = ""
                 actual_type = random.choice(["选择题", "填空题", "解答题"]) if "随机" in selected_q_type else selected_q_type.split(" ")[1]
                 base_prompt = f"针对【{target_topic_str}】出一道{actual_type}。严禁 LaTeX。最后另起一行标注‘标准答案：[答案]’。"
-                q_prompt = f"孩子，再试一次新题吧：{base_prompt}" if st.session_state.last_is_wrong else base_prompt
+                q_prompt = f"孩子，再试一次吧：{base_prompt}" if st.session_state.last_is_wrong else base_prompt
                 if forced_req: q_prompt = f"【指令：{forced_req}】\n" + q_prompt
 
-                res = ask_ai_teacher("出题任务", q_prompt, mode="question")
+                res = ask_ai_teacher("出题", q_prompt, mode="question")
                 if res and "标准答案：" in res:
                     main_q, _, ans_part = res.partition("标准答案：")
                     st.session_state.current_q = main_q.strip()
@@ -134,35 +125,27 @@ with tab1:
             st.markdown("---")
             st.info(st.session_state.current_q)
             ans_input = st.text_area("输入你的思考：", placeholder="小红老师，我是这样想的...")
+            
             if st.button("🚀 提交给老师批改"):
-                with st.spinner("小红老师批改中..."):
+                with st.spinner("批改中..."):
                     e_prompt = f"题目：{st.session_state.current_q}\n标准答案：{st.session_state.correct_ans}\n学生答案：{ans_input}"
-                    eval_res = ask_ai_teacher("批改任务", e_prompt, mode="grading")
+                    eval_res = ask_ai_teacher("批改", e_prompt, mode="grading")
                     if eval_res:
                         st.session_state.eval_result = eval_res
                         st.session_state.chat_history.append({"q": st.session_state.current_q, "a": eval_res})
-                        st.session_state.last_is_wrong = "错误" in eval_res or "【错误】" in eval_res
-                        st.rerun()
+                        is_wrong = "错误" in eval_res or "【错误】" in eval_res
+                        st.session_state.last_is_wrong = is_wrong
                         
-    with col_r:
-        st.subheader("💡 老师的点拨")
-        if st.session_state.eval_result:
-            st.success(st.session_state.eval_result)
-            if st.session_state.last_is_wrong:
-                st.divider()
-                u_question = st.text_input("💬 孩子，还有哪里没听懂？", key="follow_up_input")
-                if st.button("🙋 确认追问"):
-                    with st.spinner("小红老师解答中..."):
-                        f_prompt = f"题目：{st.session_state.current_q}\n疑问：{u_question}"
-                        # 🌟 这里改为 mode="answer"，彻底解决带判断标签的问题
-                        st.session_state.follow_up_resp = ask_ai_teacher("追问解答", f_prompt, mode="answer")
-                if st.session_state.follow_up_resp:
-                    st.info(f"**老师说：** {st.session_state.follow_up_resp}")
-
-with tab2:
-    for i, item in enumerate(reversed(st.session_state.chat_history)):
-        with st.expander(f"练习记录 {len(st.session_state.chat_history) - i}"):
-            st.write(item['q']); st.markdown(f"**老师点评：**\n{item['a']}")
-
-st.divider()
-st.markdown(f'<div style="text-align: center; color: gray; font-size: 14px;">© 2025 某某学校 | 九年级数学组 | 负责人：小红老师</div>', unsafe_allow_html=True)
+                        # 🌟 核心新增：根据正误自动加减分
+                        # 确定当前加分所属的主考点（如果是智能推荐，则归属于最弱项）
+                        active_main_topic = main_topic if main_topic != "🎯 智能推荐" else student_weakest
+                        
+                        # 获取当前分数
+                        current_val = st.session_state.class_data.loc[st.session_state.class_data["姓名"] == selected_student, active_main_topic].values[0]
+                        
+                        # 计算新分数（正确+2，错误-2，范围0-100）
+                        new_val = (current_val + 2) if not is_wrong else (current_val - 2)
+                        new_val = max(0, min(100, new_val))
+                        
+                        # 更新到 DataFrame
+                        
