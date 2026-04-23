@@ -7,6 +7,7 @@ import random
 # --- 1. 页面初始化 ---
 st.set_page_config(page_title="某某学校-学情分析系统", layout="wide")
 
+# 初始化数据：九年级数学模拟分值
 if 'class_data' not in st.session_state:
     st.session_state.class_data = pd.DataFrame({
         "姓名": ["张三", "李四", "王五", "赵六"],
@@ -20,7 +21,7 @@ if 'current_q' not in st.session_state: st.session_state.current_q = ""
 if 'eval_result' not in st.session_state: st.session_state.eval_result = ""
 if 'chat_history' not in st.session_state: st.session_state.chat_history = []
 if 'last_is_wrong' not in st.session_state: st.session_state.last_is_wrong = False 
-if 'correct_ans' not in st.session_state: st.session_state.correct_ans = "" # 🌟 新增：存储标准答案
+if 'correct_ans' not in st.session_state: st.session_state.correct_ans = "" 
 
 # --- 2. 侧边栏 ---
 with st.sidebar:
@@ -48,7 +49,6 @@ def ask_ai_teacher(system_prompt, user_input, is_grading=False):
     if not api_key:
         st.error("请先在左侧输入 API Key！")
         return None
-    # 🌟 强化指令：死命令禁止 LaTeX，确保数学表达纯文字化
     identity_prompt = (
         f"你现在是数学老师小红。点评极其简练（50字内）。"
         "严禁使用 LaTeX 格式（禁止出现 \\frac, \\triangle, ^ 等反斜杠符号）。"
@@ -65,7 +65,7 @@ def ask_ai_teacher(system_prompt, user_input, is_grading=False):
     except: return None
 
 # --- 4. 主界面 ---
-st.title("🤖 智汇皋陶：AI 个性化测评系统")
+st.title("🤖 智汇皋陶：AI 个性化测评 system")
 st.markdown(f"#### 欢迎来到 **小红** 老师的数字教室")
 
 tab1, tab2 = st.tabs(["✍️ 互动练习区", "📖 练习记录本"])
@@ -74,13 +74,26 @@ with tab1:
     col_l, col_r = st.columns([3, 2])
     with col_l:
         st.subheader(f"📍 针对【{selected_student}】的精准强化")
-        btn_label = "🔄 获取相似题巩固" if st.session_state.last_is_wrong else "✨ 获取九年级中考专项题目"
+        
+        # 🌟 核心新增功能：手动选择题目的知识点类型
+        knowledge_points = list(st.session_state.class_data.columns[1:])
+        topic_choice = st.selectbox("📚 请选择练习考点：", ["🎯 智能推荐 (针对弱项)", *knowledge_points])
+        
+        # 确定最终出题的知识点
+        if topic_choice == "🎯 智能推荐 (针对弱项)":
+            target_topic = student_weakest
+        else:
+            target_topic = topic_choice
+            
+        st.write(f"当前选定考点：**{target_topic}**")
+
+        btn_label = "🔄 获取相似题巩固" if st.session_state.last_is_wrong else "✨ 获取专项练习题目"
         
         if st.button(btn_label):
             with st.spinner("小红老师正在为您准备题目..."):
                 q_type = random.choice(["带有A/B/C/D选项的选择题", "纯文字填空题"])
-                # 🌟 核心修改：要求 AI 在输出末尾带上答案
-                base_prompt = f"针对【{student_weakest}】出一道九年级中考难度的【{q_type}】。绝对严禁 LaTeX。必须在题目最后另起一行标注‘标准答案：[字母或数值]’。"
+                # 要求 AI 在输出末尾带上答案
+                base_prompt = f"针对知识点【{target_topic}】出一道九年级中考难度的【{q_type}】。绝对严禁 LaTeX。必须在题目最后另起一行标注‘标准答案：[字母或数值]’。"
                 
                 if st.session_state.last_is_wrong:
                     q_prompt = f"孩子刚才答错了题目：{st.session_state.current_q}。请再出一道逻辑相近的新题。{base_prompt} 开头必须是‘下面给你一道巩固题，仔细想想哦：’"
@@ -92,7 +105,6 @@ with tab1:
 
                 res = ask_ai_teacher("命题专家", q_prompt, is_grading=False)
                 if res and "标准答案：" in res:
-                    # 🌟 核心修改：截断答案，不让学生看见，但存入后台
                     main_q, _, ans_part = res.partition("标准答案：")
                     st.session_state.current_q = main_q.strip()
                     st.session_state.correct_ans = ans_part.strip().replace("[","").replace("]","")
@@ -106,7 +118,6 @@ with tab1:
             
             if st.button("🚀 提交给老师批改"):
                 with st.spinner("小红老师正在阅读你的答案..."):
-                    # 🌟 核心修改：批改时直接告诉 AI 刚才锁定的正确答案是什么
                     e_prompt = (
                         f"【标准参考答案】：{st.session_state.correct_ans}\n"
                         f"【学生提交内容】：{ans_input}\n"
