@@ -7,7 +7,6 @@ import random
 # --- 1. 页面初始化 ---
 st.set_page_config(page_title="某某学校-学情分析系统", layout="wide")
 
-# 初始化数据
 if 'class_data' not in st.session_state:
     st.session_state.class_data = pd.DataFrame({
         "姓名": ["张三", "李四", "王五", "赵六"],
@@ -46,16 +45,14 @@ with st.sidebar:
     student_weakest = plot_data.loc[plot_data['得分'].idxmin(), '知识点']
 
 # --- 3. AI 调用逻辑 ---
-def ask_ai_teacher(system_prompt, user_input):
+def ask_ai_teacher(system_prompt, user_input, is_grading=False):
     if not api_key:
         st.error("请先在左侧输入 API Key！")
         return None
 
-    # 🌟 找回温柔提示词：强化小红老师亲切鼓励的人设
     identity_prompt = (
         f"你现在是数学老师小红。对话对象是九年级学生。称呼学生为'同学'或'孩子'。"
-        "语气必须极其温柔、细腻、耐心、充满鼓励。哪怕学生做错了，也要先肯定他的思考。 "
-        "要求：必须使用纯文字。直接讲核心，不要长篇大论（控制在50字内），禁止使用LaTeX。"
+        "语气必须极其温柔、细腻、耐心、充满鼓励。点评要极简（50字内），禁LaTeX。"
         "🌟特别注意：在批改时，第一行必须先明确输出【正确】或【错误】。"
     )
 
@@ -67,7 +64,8 @@ def ask_ai_teacher(system_prompt, user_input):
                 {"role": "system", "content": identity_prompt + system_prompt},
                 {"role": "user", "content": user_input}
             ],
-            temperature=1.0
+            # 🌟 核心改进：如果是批改作业，强制降低随机度，保证准确性
+            temperature=0.3 if is_grading else 1.0
         )
         return response.choices[0].message.content
     except: return None
@@ -90,7 +88,6 @@ with tab1:
             with st.spinner("小红老师正在为您准备题目..."):
                 q_type = random.choice(["带有A/B/C/D选项的选择题", "纯文字填空题"])
                 
-                # 🌟 综合修复：老师温柔口吻 + 严禁上一题分析 + 强制开头
                 if st.session_state.last_is_wrong:
                     q_prompt = (
                         f"孩子，刚才关于【{student_weakest}】的题没做对没关系，老师相信你再试一次肯定行！\n"
@@ -104,7 +101,7 @@ with tab1:
                 if forced_req:
                     q_prompt = f"【强制要求：{forced_req}】\n" + q_prompt
 
-                res = ask_ai_teacher("你正在以温柔鼓励的老师口吻命制数学练习题。", q_prompt)
+                res = ask_ai_teacher("你正在命制数学练习题。", q_prompt, is_grading=False)
                 if res:
                     st.session_state.current_q = res
                     st.session_state.eval_result = ""
@@ -117,8 +114,14 @@ with tab1:
             
             if st.button("🚀 提交给老师批改"):
                 with st.spinner("小红老师正在阅读你的答案..."):
-                    e_prompt = f"题目：{st.session_state.current_q}\n学生答案：{ans_input}\n请判断正误，并给予温柔的鼓励和核心点拨。"
-                    eval_res = ask_ai_teacher("你正在批改学生的作业。", e_prompt)
+                    # 🌟 核心改进：在提示词里强制 AI 先进行自我运算比对
+                    e_prompt = (
+                        f"【批改任务】\n题目：{st.session_state.current_q}\n学生答案：{ans_input}\n"
+                        f"请先自己计算出该题的正确答案，然后核对学生输入的选项是否正确。"
+                        f"要求：第一行输出【正确】或【错误】，然后给予温柔鼓励。"
+                    )
+                    # 传入 is_grading=True 激活 0.3 的低温模式
+                    eval_res = ask_ai_teacher("你正在严谨地批改数学作业。", e_prompt, is_grading=True)
                     if eval_res:
                         st.session_state.eval_result = eval_res
                         st.session_state.chat_history.append({"q": st.session_state.current_q, "a": eval_res})
