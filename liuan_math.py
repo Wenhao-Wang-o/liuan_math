@@ -21,7 +21,7 @@ if 'class_data' not in st.session_state:
 # 建立精细化知识点地图
 if 'sub_topic_map' not in st.session_state:
     st.session_state.sub_topic_map = {
-        "二次函数": ["1.二次函数概念", "2.二次函数的图象和性质", "3.二次函数与一元二次方程", "4.二次函数的应用", "5.综合：最大利润问题"],
+        "二次函数": ["1.二次函数概念", "2.二次函数的图象 and 性质", "3.二次函数与一元二次方程", "4.二次函数的应用", "5.综合：最大利润问题"],
         "圆的性质": ["1.旋转", "2.圆的基本性质", "3.圆周角", "4.直线与圆的位置关系", "5.三角形内切圆", "6.弧长与面积", "7.综合复习"],
         "相似三角形": ["1.比例线段", "2.平行线分线段成比例", "3.相似判定", "4.相似性质"],
         "锐角三角函数": ["1.正弦/余弦/正切", "2.特殊角值", "3.解直角三角形应用"],
@@ -35,6 +35,7 @@ if 'chat_history' not in st.session_state: st.session_state.chat_history = []
 if 'last_is_wrong' not in st.session_state: st.session_state.last_is_wrong = False 
 if 'correct_ans' not in st.session_state: st.session_state.correct_ans = "" 
 if 'follow_up_resp' not in st.session_state: st.session_state.follow_up_resp = ""
+if 'current_q_type' not in st.session_state: st.session_state.current_q_type = "" # 🌟 新增：记录当前题型
 
 # --- 2. 侧边栏：可视化数据看板 ---
 with st.sidebar:
@@ -64,7 +65,7 @@ with st.sidebar:
     st.divider()
     forced_req = st.text_area("🎯 强制出题要求", placeholder="例如：要求涉及对应边成比例", key="forced_instruction")
 
-# --- 3. AI 核心调用逻辑：模式隔离与温柔语气回归 ---
+# --- 3. AI 核心调用逻辑 ---
 def ask_ai_teacher(system_prompt, user_input, mode="question"):
     if not api_key:
         st.error("请输入 API Key！")
@@ -126,6 +127,7 @@ with tab1:
             with st.spinner("老师出题中..."):
                 st.session_state.eval_result = ""; st.session_state.follow_up_resp = ""
                 q_logic_type = random.choice(["选择题", "填空题", "简答题"]) if "随机" in selected_q_type else selected_q_type.split(" ")[1]
+                st.session_state.current_q_type = q_logic_type # 🌟 记录生成的题型用于后续评分
                 
                 base_prompt = f"针对【{target_topic_str}】出一道{q_logic_type}。严禁 LaTeX。最后另起一行标注‘标准答案：[答案]’。"
                 
@@ -159,10 +161,14 @@ with tab1:
                         is_wrong = "错误" in eval_res or "【错误】" in eval_res
                         st.session_state.last_is_wrong = is_wrong
                         
-                        # 🌟 动态加减分逻辑
+                        # 🌟 动态加减分逻辑（根据题型区分权重）
                         score_topic = main_topic if main_topic != "🎯 智能推荐" else student_weakest
                         curr_score = st.session_state.class_data.loc[st.session_state.class_data["姓名"] == selected_student, score_topic].values[0]
-                        new_score = max(0, min(100, (curr_score + 2) if not is_wrong else (curr_score - 2)))
+                        
+                        # 根据题型判断变动分值：简答题3分，其他2分
+                        score_delta = 3 if st.session_state.get("current_q_type") == "简答题" else 2
+                        
+                        new_score = max(0, min(100, (curr_score + score_delta) if not is_wrong else (curr_score - score_delta)))
                         st.session_state.class_data.loc[st.session_state.class_data["姓名"] == selected_student, score_topic] = new_score
                         st.rerun()
                         
